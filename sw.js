@@ -1,12 +1,14 @@
 // sw.js — offline shell. Bump CACHE when you change any file.
-const CACHE = 'orbit-v3';
+const CACHE = 'orbit-v4';
 
 const SHELL = [
   './',
   './index.html',
   './styles.css',
+  './ux-v4.css',
   './manifest.webmanifest',
   './app/main.js',
+  './app/ux-v4.js',
   './app/state.js',
   './app/cycle.js',
   './app/views.js',
@@ -40,11 +42,8 @@ self.addEventListener('fetch', (e) => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
-
-  // Never cache the sync backend.
   if (url.pathname.includes('/rest/v1/')) return;
 
-  // Fonts: cache once, then serve from cache.
   if (url.hostname.endsWith('gstatic.com') || url.hostname.endsWith('googleapis.com')) {
     e.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((res) => {
@@ -58,7 +57,6 @@ self.addEventListener('fetch', (e) => {
 
   if (url.origin !== location.origin) return;
 
-  // App files: try the network so updates land, fall back to cache offline.
   e.respondWith(
     fetch(req)
       .then((res) => {
