@@ -1,11 +1,9 @@
 // sw.js — offline shell. Bump CACHE when you change any file.
-const CACHE = 'orbit-v9';
-
+const CACHE = 'orbit-v10';
 const SHELL = [
-  './', './index.html', './styles.css', './ux-v4.css', './ux-v5.css', './manifest.webmanifest',
-  './app/main-v5.js', './app/ux-v4.js', './app/ux-v5.js', './app/ux-v6.js', './app/state.js', './app/cycle.js',
-  './app/views.js', './app/more.js', './app/connect.js', './app/ui.js',
-  './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon-32.png',
+  './','./index.html','./styles.css','./ux-v4.css','./ux-v5.css','./reliability-v7.css','./manifest.webmanifest',
+  './app/main-v5.js','./app/ux-v4.js','./app/ux-v5.js','./app/ux-v6.js','./app/reliability-v7.js','./app/state.js','./app/cycle.js',
+  './app/views.js','./app/more.js','./app/connect.js','./app/ui.js','./icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png','./icons/favicon-32.png'
 ];
 self.addEventListener('install',(e)=>{e.waitUntil(caches.open(CACHE).then((c)=>Promise.allSettled(SHELL.map((u)=>c.add(u)))).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',(e)=>{e.waitUntil(caches.keys().then((keys)=>Promise.all(keys.filter((k)=>k!==CACHE).map((k)=>caches.delete(k)))).then(()=>self.clients.claim()));});
