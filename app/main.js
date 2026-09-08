@@ -168,8 +168,16 @@ function boot() {
 
   const afterUnlock = () => {
     if (!s.profile.onboarded) {
+      // #app fills the viewport even when empty. Hide it while onboarding,
+      // otherwise the body-mounted onboarding screen starts one viewport below.
+      const appRoot = el();
+      appRoot.style.display = 'none';
       // A share link on a fresh install jumps straight to the partner path.
-      onboarding((where) => { route = where === 'partner' ? 'partner' : 'cycle'; start(); });
+      onboarding((where) => {
+        appRoot.style.display = '';
+        route = where === 'partner' ? 'partner' : 'cycle';
+        start();
+      });
     } else {
       start();
     }
