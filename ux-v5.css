@@ -1,0 +1,66 @@
+/* Orbit UX v5 — cycle-first mobile presentation, inspired by the clarity of leading trackers. */
+
+.ux-v5-home { margin: 0 0 18px; }
+.ux-v5-hero { padding: 8px 0 2px; text-align:center; }
+.ux-v5-arc { --size:min(82vw,340px); position:relative; width:var(--size); height:var(--size); margin:2px auto 14px; }
+.ux-arc-seg { position:absolute; left:50%; top:50%; width:9px; height:19px; border-radius:7px; background:var(--ink-3); transform-origin:50% calc(var(--size) * -.39); transform:translate(-50%, calc(var(--size) * .39)) rotate(calc(360deg / var(--n) * var(--i))); opacity:.72; }
+.ux-arc-seg.phase-menstrual { background:var(--menstrual); opacity:.95; }
+.ux-arc-seg.phase-pms { background:var(--pms); opacity:.8; }
+.ux-arc-seg.is-current { width:13px; height:26px; background:var(--bone); opacity:1; box-shadow:0 0 0 6px color-mix(in srgb,var(--accent) 35%,transparent),0 4px 20px rgba(0,0,0,.28); }
+.ux-v5-arc-center { position:absolute; inset:22%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.ux-v5-arc-center > span { color:var(--muted); font-size:11px; letter-spacing:.15em; }
+.ux-v5-arc-center strong { font-family:var(--serif); font-size:76px; line-height:.95; font-weight:400; color:var(--bone); }
+.ux-v5-arc-center em { margin-top:15px; padding:8px 14px; border:1px solid var(--accent); border-radius:999px; color:var(--accent); font-size:13px; font-style:normal; font-weight:700; }
+
+.ux-v5-primary { max-width:350px; margin:0 auto 18px; }
+.ux-v5-primary h2 { margin:5px 0 6px; font-size:25px; line-height:1.15; }
+.ux-v5-primary p { margin:0; color:var(--muted); font-size:13px; }
+.ux-v5-range { display:flex; align-items:center; justify-content:center; gap:7px; margin:13px auto 0; padding:9px 12px; width:max-content; max-width:100%; border-radius:999px; background:var(--ink-2); font-size:11px; }
+.ux-v5-range span,.ux-v5-range small { color:var(--muted); }
+.ux-v5-range strong { color:var(--bone); font-size:12px; }
+
+.ux-v5-feel { width:100%; min-height:68px; display:flex; align-items:center; gap:12px; padding:12px 15px; margin:8px 0 14px; border-radius:22px; background:linear-gradient(135deg,color-mix(in srgb,var(--accent) 76%,#8a4b16),var(--accent)); color:var(--accent-ink); text-align:left; box-shadow:0 10px 28px rgba(0,0,0,.16); }
+.ux-v5-feel-icon { width:38px; height:38px; display:grid; place-items:center; flex:none; border-radius:50%; background:rgba(255,255,255,.18); font-size:24px; }
+.ux-v5-feel > span:nth-child(2) { flex:1; min-width:0; }
+.ux-v5-feel strong,.ux-v5-feel small { display:block; }
+.ux-v5-feel strong { font-size:16px; }
+.ux-v5-feel small { margin-top:3px; opacity:.72; font-size:10px; line-height:1.3; }
+.ux-v5-feel b { font-size:27px; font-weight:300; }
+
+.ux-v5-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+.ux-v5-info { min-height:115px; padding:14px; border:1px solid var(--border); border-radius:18px; background:var(--ink-1); color:var(--bone); text-align:left; }
+.ux-v5-info strong,.ux-v5-info small { display:block; }
+.ux-v5-info strong { margin-top:6px; font-family:var(--serif); font-size:19px; font-weight:500; }
+.ux-v5-info small { margin-top:6px; color:var(--muted); font-size:10.5px; line-height:1.35; }
+
+.ux-v5-trust { padding:16px; margin:0 0 14px; border:1px solid var(--border); border-radius:20px; background:var(--ink-1); }
+.ux-v5-trust h3 { margin:3px 0 14px; font-size:17px; }
+.ux-v5-trust-row { display:flex; gap:11px; align-items:flex-start; padding:10px 0; border-top:1px solid var(--border); }
+.ux-v5-trust-row i { width:11px; height:11px; flex:none; margin-top:3px; border-radius:50%; }
+.ux-v5-trust-row i.actual { background:var(--menstrual); }
+.ux-v5-trust-row i.estimate { background:transparent; border:2px dashed var(--accent); }
+.ux-v5-trust-row span { flex:1; }
+.ux-v5-trust-row strong,.ux-v5-trust-row small { display:block; }
+.ux-v5-trust-row strong { font-size:12.5px; }
+.ux-v5-trust-row small { margin-top:3px; color:var(--muted); font-size:10.5px; line-height:1.4; }
+.ux-v5-warning { margin-top:10px; padding:10px; border-radius:12px; background:color-mix(in srgb,var(--pms) 15%,var(--ink-2)); color:var(--bone); font-size:11px; line-height:1.45; }
+.ux-v5-disclaimer { margin:11px 0 0; color:var(--faint); font-size:9.5px; line-height:1.45; }
+
+.ux-v5-track-intro { margin:14px 2px 8px; }
+.ux-v5-track-intro h2 { margin:3px 0 4px; font-size:21px; }
+.ux-v5-track-intro p { margin:0; color:var(--muted); font-size:12px; }
+
+/* Make the bottom navigation feel more like a native mobile control. */
+.nav-inner { border:1px solid color-mix(in srgb,var(--border) 80%,transparent); border-radius:24px 24px 0 0; overflow:visible; }
+.nav button[aria-current='true']:not(.fab) .glyph { transform:scale(1.08); }
+
+@media (max-width:390px) {
+  .ux-v5-arc { --size:min(86vw,320px); }
+  .ux-v5-arc-center strong { font-size:66px; }
+  .ux-v5-grid { grid-template-columns:1fr; }
+  .ux-v5-info { min-height:92px; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .ux-arc-seg,.ux-v5-feel { transition:none!important; }
+}
