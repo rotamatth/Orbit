@@ -1,0 +1,187 @@
+/* Orbit UX v4 — historical tracking, clearer date state, cycle history. */
+
+.ux-track-toolbar,
+.ux-calendar-toolbar {
+  margin: 0 0 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--ink-1) 90%, var(--accent) 10%);
+}
+
+.ux-selected-date {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 9px;
+  margin-bottom: 12px;
+}
+.ux-selected-date strong {
+  flex-basis: 100%;
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 500;
+}
+.ux-kicker {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.ux-past-badge,
+.ux-today-badge {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.ux-past-badge { background: var(--ink-3); color: var(--bone); }
+.ux-today-badge { background: var(--accent); color: var(--accent-ink); }
+
+.ux-actions,
+.ux-calendar-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ux-small-btn,
+.ux-date-jump {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 11px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--ink-2);
+  color: var(--bone);
+  font-size: 12px;
+  font-weight: 650;
+}
+.ux-small-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.ux-date-jump { position: relative; overflow: hidden; }
+.ux-date-jump input[type='date'] {
+  width: 112px;
+  max-width: 34vw;
+  border: 0;
+  background: transparent;
+  color: var(--bone);
+  font: inherit;
+  color-scheme: dark;
+}
+.ux-calendar-jump { flex: 1; justify-content: space-between; min-width: 160px; }
+
+.date-strip { scroll-snap-type: x proximity; }
+.date-pill { scroll-snap-align: center; position: relative; }
+.date-pill[aria-pressed='true'] {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.2);
+}
+.date-pill[aria-pressed='true']::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border: 2px solid var(--accent);
+  border-radius: inherit;
+  pointer-events: none;
+}
+.ux-empty-dot { display:block; height:7px; }
+
+.ux-focus-date {
+  outline: 3px solid var(--accent) !important;
+  outline-offset: 2px;
+  animation: uxPulse 1.2s ease 2;
+}
+@keyframes uxPulse { 50% { transform: scale(.94); } }
+
+.ux-period-intro {
+  margin: 8px 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.ux-period-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.ux-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0 10px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.ux-check input { margin-top: 2px; width: 18px; height: 18px; accent-color: var(--accent); }
+.ux-period-note { margin: 0 0 16px; }
+
+.ux-cycle-overview { margin-top: 16px; }
+.ux-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.ux-card-heading h2 { margin: 3px 0 0; }
+.ux-cycle-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.ux-cycle-stats > div {
+  min-width: 0;
+  padding: 11px 8px;
+  border-radius: 13px;
+  background: var(--ink-2);
+  text-align: center;
+}
+.ux-cycle-stats strong {
+  display: block;
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ux-cycle-stats span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.ux-history-list { border-top: 1px solid var(--border); }
+.ux-history-list > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 2px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  color: var(--bone);
+}
+.ux-period-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--menstrual); flex: none; }
+.ux-history-main { flex: 1; min-width: 0; }
+.ux-history-main strong { display:block; font-size: 13.5px; font-weight: 650; }
+.ux-history-main small { display:block; color:var(--muted); margin-top:3px; font-size:11px; }
+.ux-history-list .chev { color: var(--faint); font-size: 20px; }
+
+@media (max-width: 390px) {
+  .ux-period-grid { grid-template-columns: 1fr; gap: 0; }
+  .ux-actions .ux-small-btn { flex: 1; }
+  .ux-cycle-stats { gap: 5px; }
+  .ux-cycle-stats > div { padding-inline: 5px; }
+}
