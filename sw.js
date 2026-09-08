@@ -1,14 +1,16 @@
 // sw.js — offline shell. Bump CACHE when you change any file.
-const CACHE = 'orbit-v5';
+const CACHE = 'orbit-v6';
 
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './ux-v4.css',
+  './ux-v5.css',
   './manifest.webmanifest',
   './app/main-v5.js',
   './app/ux-v4.js',
+  './app/ux-v5.js',
   './app/state.js',
   './app/cycle.js',
   './app/views.js',
