@@ -1,8 +1,8 @@
 // sw.js — offline shell. Bump CACHE when you change any file.
-const CACHE = 'orbit-v10';
+const CACHE = 'orbit-v11';
 const SHELL = [
-  './','./index.html','./styles.css','./ux-v4.css','./ux-v5.css','./reliability-v7.css','./manifest.webmanifest',
-  './app/main-v5.js','./app/ux-v4.js','./app/ux-v5.js','./app/ux-v6.js','./app/reliability-v7.js','./app/state.js','./app/cycle.js',
+  './','./index.html','./styles.css','./ux-v4.css','./ux-v5.css','./reliability-v7.css','./pill-v11.css','./manifest.webmanifest',
+  './app/main-v5.js','./app/ux-v4.js','./app/ux-v5.js','./app/ux-v6.js','./app/reliability-v7.js','./app/pill-v11.js','./app/state.js','./app/cycle.js',
   './app/views.js','./app/more.js','./app/connect.js','./app/ui.js','./icons/icon-192.png','./icons/icon-512.png','./icons/apple-touch-icon.png','./icons/favicon-32.png'
 ];
 self.addEventListener('install',(e)=>{e.waitUntil(caches.open(CACHE).then((c)=>Promise.allSettled(SHELL.map((u)=>c.add(u)))).then(()=>self.skipWaiting()));});
