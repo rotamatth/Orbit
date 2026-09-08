@@ -2,26 +2,8 @@
 
 .ux-v5-home { margin:0 0 18px; }
 .ux-v5-hero { padding:8px 0 2px; text-align:center; }
-.ux-v5-arc { --size:min(82vw,340px); --radius:calc(var(--size) * .42); position:relative; width:var(--size); height:var(--size); margin:2px auto 8px; user-select:none; -webkit-user-select:none; touch-action:pan-y; }
-
-/* Day 1 is always at 12 o'clock. Days increase clockwise.
-   The draggable marker uses this exact same transform, so visual position and date mapping cannot drift apart. */
-.ux-arc-seg {
-  appearance:none;
-  -webkit-appearance:none;
-  position:absolute;
-  left:50%;
-  top:50%;
-  width:10px;
-  height:19px;
-  padding:0;
-  border:0;
-  border-radius:7px;
-  background:var(--ink-3);
-  transform:translate(-50%,-50%) rotate(calc((360deg / var(--n)) * var(--i))) translateY(calc(-1 * var(--radius)));
-  opacity:.64;
-  cursor:pointer;
-}
+.ux-v5-arc { --size:min(82vw,340px); --radius:calc(var(--size) * .42); position:relative; width:var(--size); height:var(--size); margin:44px auto 8px; user-select:none; -webkit-user-select:none; touch-action:pan-y; }
+.ux-arc-seg { appearance:none; -webkit-appearance:none; position:absolute; left:50%; top:50%; width:10px; height:19px; padding:0; border:0; border-radius:7px; background:var(--ink-3); transform:translate(-50%,-50%) rotate(calc((360deg / var(--n)) * var(--i))) translateY(calc(-1 * var(--radius))); opacity:.64; cursor:pointer; }
 .ux-arc-seg.phase-menstrual { background:var(--menstrual); opacity:.96; }
 .ux-arc-seg.phase-menstrual.predicted { opacity:.52; }
 .ux-arc-seg.phase-fertile { background:var(--fertile); opacity:.88; }
@@ -32,31 +14,24 @@
 .ux-arc-seg.is-selected { opacity:1; filter:brightness(1.35); }
 .ux-arc-seg:focus-visible { outline:2px solid var(--bone); outline-offset:4px; }
 
-.ux-ring-knob {
-  pointer-events:none;
-  position:absolute;
-  left:50%;
-  top:50%;
-  z-index:6;
-  width:18px;
-  height:34px;
-  border:5px solid color-mix(in srgb,var(--accent) 45%,var(--ink-2));
-  border-radius:999px;
-  background:var(--bone);
-  box-shadow:0 5px 20px rgba(0,0,0,.38);
-  transform:translate(-50%,-50%) rotate(calc((360deg / var(--n)) * var(--i))) translateY(calc(-1 * var(--radius)));
-  transition:transform 90ms ease;
-}
-.ux-v5-arc.is-dragging .ux-ring-knob {
-  transition:none;
-  transform:translate(-50%,-50%) rotate(calc((360deg / var(--n)) * var(--i))) translateY(calc(-1 * var(--radius))) scale(1.08);
-}
+.ux-ring-knob { pointer-events:none; position:absolute; left:50%; top:50%; z-index:6; width:18px; height:34px; border:5px solid color-mix(in srgb,var(--accent) 45%,var(--ink-2)); border-radius:999px; background:var(--bone); box-shadow:0 5px 20px rgba(0,0,0,.38); transform:translate(-50%,-50%) rotate(calc((360deg / var(--n)) * var(--i))) translateY(calc(-1 * var(--radius))); transition:transform 90ms ease; }
+.ux-v5-arc.is-dragging .ux-ring-knob { transition:none; transform:translate(-50%,-50%) rotate(calc((360deg / var(--n)) * var(--i))) translateY(calc(-1 * var(--radius))) scale(1.08); }
 
-.ux-v5-arc-center { pointer-events:none; position:absolute; inset:22%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.ux-clock-anchor { pointer-events:none; position:absolute; z-index:8; left:50%; display:flex; flex-direction:column; align-items:center; white-space:nowrap; transform:translateX(-50%); }
+.ux-clock-anchor span { color:var(--faint); font-size:8px; font-weight:800; letter-spacing:.12em; }
+.ux-clock-anchor strong { margin-top:2px; color:var(--bone); font-size:12px; }
+.ux-clock-anchor small { color:var(--faint); font-size:8px; }
+.ux-clock-start { top:-43px; }
+.ux-clock-start::after { content:'↓'; margin-top:1px; color:var(--menstrual); font-size:13px; }
+.ux-clock-next { top:-43px; left:auto; right:-4px; transform:none; align-items:flex-end; opacity:.82; }
+.ux-clock-next::after { content:'↻'; margin-top:1px; color:var(--accent); font-size:12px; }
+
+.ux-v5-arc-center { pointer-events:none; position:absolute; inset:20%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
 .ux-v5-arc-center > span { color:var(--muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
-.ux-v5-arc-center strong { font-family:var(--serif); font-size:76px; line-height:.95; font-weight:400; color:var(--bone); }
-.ux-v5-arc-center em { margin-top:15px; padding:8px 14px; border:1px solid var(--accent); border-radius:999px; color:var(--accent); font-size:13px; font-style:normal; font-weight:700; }
-.ux-ring-hint { margin:0 auto 12px; color:var(--faint); font-size:10.5px; }
+.ux-v5-arc-center strong { font-family:var(--serif); font-size:72px; line-height:.92; font-weight:400; color:var(--bone); }
+.ux-v5-arc-center em { margin-top:12px; padding:7px 12px; border:1px solid var(--accent); border-radius:999px; color:var(--accent); font-size:12px; font-style:normal; font-weight:700; }
+.ux-clock-countdown { margin-top:9px; color:var(--bone); font-size:10.5px; font-weight:700; letter-spacing:0; text-transform:none; }
+.ux-ring-hint { max-width:330px; margin:0 auto 12px; color:var(--faint); font-size:10.5px; line-height:1.45; }
 
 .ux-ring-preview { margin:0 0 18px; padding:15px; border:1px solid var(--border); border-radius:20px; background:var(--ink-1); text-align:left; min-height:168px; }
 .ux-ring-preview-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
@@ -114,7 +89,8 @@
 
 @media (max-width:390px) {
   .ux-v5-arc { --size:min(86vw,320px); }
-  .ux-v5-arc-center strong { font-size:66px; }
+  .ux-v5-arc-center strong { font-size:62px; }
+  .ux-clock-next { right:0; }
   .ux-v5-grid { grid-template-columns:1fr; }
   .ux-v5-info { min-height:92px; }
 }
