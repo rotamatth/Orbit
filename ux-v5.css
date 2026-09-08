@@ -2,8 +2,26 @@
 
 .ux-v5-home { margin:0 0 18px; }
 .ux-v5-hero { padding:8px 0 2px; text-align:center; }
-.ux-v5-arc { --size:min(82vw,340px); position:relative; width:var(--size); height:var(--size); margin:2px auto 8px; user-select:none; -webkit-user-select:none; touch-action:pan-y; }
-.ux-arc-seg { appearance:none; -webkit-appearance:none; position:absolute; left:50%; top:50%; width:10px; height:19px; padding:0; border:0; border-radius:7px; background:var(--ink-3); transform-origin:50% calc(var(--size) * -.39); transform:translate(-50%,calc(var(--size) * .39)) rotate(calc(360deg / var(--n) * var(--i))); opacity:.64; cursor:pointer; }
+.ux-v5-arc { --size:min(82vw,340px); --radius:calc(var(--size) * .42); position:relative; width:var(--size); height:var(--size); margin:2px auto 8px; user-select:none; -webkit-user-select:none; touch-action:pan-y; }
+
+/* Day 1 is always at 12 o'clock. Days increase clockwise.
+   The draggable marker uses this exact same transform, so visual position and date mapping cannot drift apart. */
+.ux-arc-seg {
+  appearance:none;
+  -webkit-appearance:none;
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:10px;
+  height:19px;
+  padding:0;
+  border:0;
+  border-radius:7px;
+  background:var(--ink-3);
+  transform:translate(-50%,-50%) rotate(calc((360deg / var(--n)) * var(--i))) translateY(calc(-1 * var(--radius)));
+  opacity:.64;
+  cursor:pointer;
+}
 .ux-arc-seg.phase-menstrual { background:var(--menstrual); opacity:.96; }
 .ux-arc-seg.phase-menstrual.predicted { opacity:.52; }
 .ux-arc-seg.phase-fertile { background:var(--fertile); opacity:.88; }
@@ -14,8 +32,25 @@
 .ux-arc-seg.is-selected { opacity:1; filter:brightness(1.35); }
 .ux-arc-seg:focus-visible { outline:2px solid var(--bone); outline-offset:4px; }
 
-.ux-ring-knob { pointer-events:none; position:absolute; left:50%; top:50%; z-index:6; width:18px; height:34px; border:5px solid color-mix(in srgb,var(--accent) 45%,var(--ink-2)); border-radius:999px; background:var(--bone); box-shadow:0 5px 20px rgba(0,0,0,.38); transform-origin:50% calc(var(--size) * -.39); transform:translate(-50%,calc(var(--size) * .39)) rotate(calc(360deg / var(--n) * var(--i))); transition:transform 90ms ease; }
-.ux-v5-arc.is-dragging .ux-ring-knob { transition:none; transform:translate(-50%,calc(var(--size) * .39)) rotate(calc(360deg / var(--n) * var(--i))) scale(1.08); }
+.ux-ring-knob {
+  pointer-events:none;
+  position:absolute;
+  left:50%;
+  top:50%;
+  z-index:6;
+  width:18px;
+  height:34px;
+  border:5px solid color-mix(in srgb,var(--accent) 45%,var(--ink-2));
+  border-radius:999px;
+  background:var(--bone);
+  box-shadow:0 5px 20px rgba(0,0,0,.38);
+  transform:translate(-50%,-50%) rotate(calc((360deg / var(--n)) * var(--i))) translateY(calc(-1 * var(--radius)));
+  transition:transform 90ms ease;
+}
+.ux-v5-arc.is-dragging .ux-ring-knob {
+  transition:none;
+  transform:translate(-50%,-50%) rotate(calc((360deg / var(--n)) * var(--i))) translateY(calc(-1 * var(--radius))) scale(1.08);
+}
 
 .ux-v5-arc-center { pointer-events:none; position:absolute; inset:22%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
 .ux-v5-arc-center > span { color:var(--muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
