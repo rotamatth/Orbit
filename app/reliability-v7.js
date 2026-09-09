@@ -3,7 +3,7 @@
 // validated contraceptive method. If avoiding pregnancy, use a reliable contraceptive method.
 
 import { get, update, CATEGORIES } from './state.js';
-import { today, addDays, diffDays, fmtDate, forecast, classify, stats, ovulationEvidence } from './cycle.js';
+import { today, addDays, diffDays, fmtDate, forecast, classify, stats, ovulationEvidence, bbtQuality, bbtShift, nextPeriod, backtest } from './cycle.js';
 import { esc, toast } from './ui.js';
 
 const DISTURB = new Set(['poor-sleep','fever','alcohol','late','travel','illness']);
@@ -22,12 +22,6 @@ function cervicalLabel(v) {
   return ({none:'Dry / none',sticky:'Sticky',creamy:'Creamy',watery:'Watery',eggwhite:'Egg-white / slippery',atypical:'Atypical'})[v] || 'Not logged';
 }
 
-function bbtQuality(day) {
-  if (!day || day.bbt == null) return 'missing';
-  const ctx = arr(day.bbtContext);
-  return ctx.some(x=>DISTURB.has(x)) ? 'disturbed' : 'usable';
-}
-
 function positiveLHBetween(s,start,end) {
   return Object.keys(s.days).sort().filter(d => d>=start && d<=end && arr(s.days[d].tests).includes('ovu-pos'));
 }
@@ -38,19 +32,8 @@ function mucusPeakBetween(s,start,end) {
 }
 
 function tempShiftEvidence(s,start,end) {
-  const rows=Object.keys(s.days).sort()
-    .filter(d=>d>=start&&d<=end&&Number.isFinite(Number(s.days[d].bbt))&&bbtQuality(s.days[d])==='usable')
-    .map(d=>({d,t:Number(s.days[d].bbt)}));
-  if(rows.length<9) return null;
-  const median=(xs)=>{const v=[...xs].sort((a,b)=>a-b);const m=Math.floor(v.length/2);return v.length%2?v[m]:(v[m-1]+v[m])/2;};
-  for(let i=6;i<=rows.length-3;i++){
-    if(diffDays(rows[i].d,rows[i+1].d)!==1||diffDays(rows[i+1].d,rows[i+2].d)!==1) continue;
-    const base=median(rows.slice(i-6,i).map(r=>r.t));
-    if(rows[i].t>=base+.20&&rows[i+1].t>=base+.20&&rows[i+2].t>=base+.20){
-      return {firstHigh:rows[i].d, estimatedOvulation:addDays(rows[i].d,-1), baseline:base};
-    }
-  }
-  return null;
+  const date = bbtShift(s,start,addDays(end,1));
+  return date ? { firstHigh: addDays(date,1), estimatedOvulation: date } : null;
 }
 
 function currentCycle(s,f) {
@@ -58,7 +41,7 @@ function currentCycle(s,f) {
   const cycles=f.stats.cycles;
   const c=[...cycles].reverse().find(x=>x.start<=t);
   if(!c) return null;
-  const next=f.windows.find(w=>!w.actual&&w.start>t);
+  const next=nextPeriod(f);
   return {cycle:c,next};
 }
 
@@ -109,7 +92,7 @@ function preventionCard() {
   box.dataset.ux7Prevention='1';
   box.innerHTML=`
     <div class="ux7-status-head">
-      <div><span class="ux-kicker">Pregnancy prevention</span><h2>${esc(e.title)}</h2></div>
+      <div><span class="ux-kicker">Fertility observations</span><h2>${esc(e.title)}</h2></div>
       <span class="ux7-status-dot" aria-hidden="true"></span>
     </div>
     <p class="ux7-status-reason">${esc(e.reason)}</p>
@@ -162,7 +145,7 @@ function enhanceTrackFertility(){
 
 function monthSummary(){
   const s=get(); const f=forecast(s); const t=today(); const c=classify(t,s,f);
-  const next=f.windows.find(w=>!w.actual&&w.start>=t);
+  const next=nextPeriod(f);
   const el=document.createElement('div'); el.className='ux7-cal-summary'; el.dataset.ux7CalSummary='1';
   el.innerHTML=`<div><span>Today</span><strong>${c.cycleDay?`Cycle day ${c.cycleDay}`:'Learning cycle'}</strong></div><div><span>Next period</span><strong>${next?fmtDate(next.start,{day:'numeric',month:'short'}):'—'}</strong><small>${next?`${fmtDate(next.startMin)}–${fmtDate(next.startMax)}`:''}</small></div>`;
   return el;
@@ -212,9 +195,9 @@ function enhanceAnalysis(){
   const screen=[...document.querySelectorAll('.screen')].find(x=>x.querySelector('.stat-row')&&x.querySelector('.bars'));
   if(!screen||screen.querySelector('[data-ux7-analysis]')) return;
   const s=get(),st=stats(s),f=forecast(s); const recent=st.completed.slice(-12); const delta=trendDelta(recent.map(c=>c.length));
-  const next=f.windows.find(w=>!w.actual&&w.start>=today());
+  const next=nextPeriod(f);
   const last30=recentDates(30); const bbt=last30.filter(d=>s.days[d]?.bbt!=null).length; const usable=last30.filter(d=>bbtQuality(s.days[d])==='usable').length; const fluid=last30.filter(d=>s.days[d]?.fluid).length; const lh=last30.filter(d=>arr(s.days[d]?.tests).some(x=>x==='ovu-pos'||x==='ovu-neg')).length;
-  const syms=topSymptoms(s,f);
+  const syms=topSymptoms(s,f); const measured = backtest(s);
   const panel=document.createElement('section'); panel.className='ux7-analysis'; panel.dataset.ux7Analysis='1';
   panel.innerHTML=`
     <div class="ux7-analysis-hero"><span class="ux-kicker">At a glance</span><h2>Your cycle insights</h2><p>${st.confidenceLevel==='high'?'Predictions are strongly personalised from your recent history.':st.confidenceLevel==='moderate'?'Orbit is personalising predictions from your recent cycles.':'Orbit is still learning; ranges are intentionally wider.'}</p></div>
@@ -222,8 +205,9 @@ function enhanceAnalysis(){
       <div><span>Cycle range</span><strong>${st.shortest&&st.longest?`${st.shortest}–${st.longest} d`:'—'}</strong><small>${st.tracked} completed cycles</small></div>
       <div><span>Recent direction</span><strong>${delta==null?'Need 6 cycles':Math.abs(delta)<1?'Stable':delta>0?`+${delta.toFixed(1)} d`:`${delta.toFixed(1)} d`}</strong><small>last 3 vs previous 3</small></div>
       <div><span>Next estimate</span><strong>${next?fmtDate(next.start,{day:'numeric',month:'short'}):'—'}</strong><small>${next?`range ${fmtDate(next.startMin)}–${fmtDate(next.startMax)}`:'more history needed'}</small></div>
-      <div><span>Prediction quality</span><strong>${st.confidenceLevel}</strong><small>uncertainty ±${st.uncertainty} d</small></div>
+      <div><span>History quality</span><strong>${st.confidenceLevel}</strong><small>uncertainty ±${st.uncertainty} d</small></div>
     </div>
+    <div class="ux7-insight-card"><h3>Past prediction checks</h3><p>${measured.samples ? `${measured.samples} historical predictions · average error ${measured.meanError.toFixed(1)} days · ${Math.round(measured.coverage*100)}% inside the estimated range.` : 'At least four recorded period starts are needed for a historical check.'} This is a check against your logs, not clinical validation.</p></div>
     <div class="ux7-insight-card"><div class="ux7-section-head"><div><span class="ux-kicker">Fertility data quality</span><h3>Last 30 days</h3></div></div><div class="ux7-coverage"><div><strong>${usable}/${bbt}</strong><span>usable BBT</span></div><div><strong>${fluid}</strong><span>fluid logs</span></div><div><strong>${lh}</strong><span>LH tests</span></div></div><p>Consistent observations improve retrospective interpretation. Calendar timing alone is not enough to determine contraceptive safety.</p></div>
     <div class="ux7-insight-card"><div class="ux7-section-head"><div><span class="ux-kicker">Most tracked</span><h3>Recurring signals</h3></div></div>${syms.length?`<div class="ux7-symptoms">${syms.map(x=>`<div><span>${esc(x.label)}</span><strong>${x.count}×</strong></div>`).join('')}</div>`:'<p>Track a few more symptoms to reveal recurring patterns.</p>'}</div>`;
   const stat=screen.querySelector('.stat-row'); stat?.insertAdjacentElement('afterend',panel);
@@ -241,6 +225,4 @@ function recentUnprotectedAlert(){
 function enhance(){
   try{enhanceCycleSafety();recentUnprotectedAlert();enhanceTrackFertility();enhanceCalendar();enhanceAnalysis();}catch(err){console.warn('Orbit reliability UX skipped:',err);}
 }
-let queued=false;
-new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;enhance();});}).observe(document.body,{childList:true,subtree:true});
-setTimeout(enhance,100);
+export { enhance };

@@ -25,6 +25,24 @@ export function toast(msg) {
   toastTimer = setTimeout(() => node.remove(), 2400);
 }
 
+// Shared keyboard behavior for sheets and pill setup.
+export function trapFocus(node, close) {
+  const previous = document.activeElement;
+  const focusable = () => [...node.querySelectorAll('button,input,select,textarea,a[href],[tabindex="0"]')].filter(x => !x.disabled && !x.closest('[hidden]'));
+  const keydown = e => {
+    if(e.key === 'Escape') { e.preventDefault(); close(); }
+    if(e.key !== 'Tab') return;
+    const items=focusable(), first=items[0], last=items.at(-1);
+    if(!first){e.preventDefault();return;}
+    if(e.shiftKey && (document.activeElement===first || !node.contains(document.activeElement))){e.preventDefault();last.focus();}
+    else if(!e.shiftKey && (document.activeElement===last || !node.contains(document.activeElement))){e.preventDefault();first.focus();}
+  };
+  node.setAttribute('tabindex','-1');
+  (focusable()[0] || node).focus();
+  document.addEventListener('keydown',keydown);
+  return () => {document.removeEventListener('keydown',keydown);if(previous?.isConnected)previous.focus();};
+}
+
 /* ---------------------------- bottom sheet ---------------------------- */
 
 let sheetCleanup = null;
@@ -62,11 +80,11 @@ export function openSheet({ title, body, onMount, onClose }) {
 
   document.body.append(scrim, sheet);
   document.body.style.overflow = 'hidden';
-  sheetCleanup = onClose || null;
+  const release = trapFocus(sheet, closeSheet);
+  sheetCleanup = () => { release(); onClose?.(); };
   onMount?.(sheet);
 
-  const onKey = (e) => { if (e.key === 'Escape') closeSheet(); };
-  document.addEventListener('keydown', onKey, { once: true });
+
   return sheet;
 }
 

@@ -3,7 +3,7 @@
 // of scrubbing through cycle days and seeing each day's details immediately.
 
 import { get, CATEGORIES, NUMERIC } from './state.js';
-import { today, addDays, diffDays, fmtDate, classify, forecast, PHASE_META } from './cycle.js';
+import { today, addDays, diffDays, fmtDate, classify, forecast, nextPeriod, PHASE_META } from './cycle.js';
 import { esc } from './ui.js';
 
 function go(route, params = {}) { window.__orbit?.go(route, params); }
@@ -18,6 +18,7 @@ function currentWindow(f, t) {
 }
 
 function confidenceCopy(st) {
+  if (st.confidenceLevel === 'uncertain') return ['Uncertain history', 'Long or variable intervals need review; observed dates have not been changed.'];
   if (st.confidenceLevel === 'high') return ['Strong personal history', `${st.tracked} completed cycles are informing this estimate.`];
   if (st.confidenceLevel === 'moderate') return ['Personalising', `${st.tracked} completed cycles are informing this estimate.`];
   return ['Still learning', st.tracked ? `Only ${st.tracked} completed cycle is available. The range is intentionally wider.` : 'Add another period start to personalise predictions.'];
@@ -25,6 +26,7 @@ function confidenceCopy(st) {
 
 function daysUntil(a, b) {
   const n = diffDays(a, b);
+  if (n < 0) return `estimate passed ${Math.abs(n)} days ago`;
   if (n === 0) return 'today';
   if (n === 1) return 'tomorrow';
   return `in about ${n} days`;
@@ -148,10 +150,10 @@ function cycleHero() {
   const win = cls.win || currentWindow(f, t);
   if (!win) return null;
 
-  const next = f.windows.find((w) => !w.actual && w.start >= t);
+  const next = nextPeriod(f);
   const cycleDay = cls.cycleDay || Math.max(1, diffDays(win.start, t) + 1);
   const len = Math.max(24, Math.min(45, Math.max(win.length || st.avgCycle || 29, cycleDay)));
-  const initialIndex = Math.max(0, Math.min(len - 1, cycleDay - 1));
+  const initialIndex = cycleDay > 45 ? cycleDay - 1 : Math.max(0, Math.min(len - 1, cycleDay - 1));
   const initialDate = addDays(win.start, initialIndex);
   const initialPreview = previewModel(s, f, win, initialDate, initialIndex);
   const [confTitle, confBody] = confidenceCopy(st);
@@ -175,7 +177,7 @@ function cycleHero() {
 
       <div class="ux-v5-primary">
         <span class="ux-kicker">Your current cycle</span>
-        <h2>${next ? `Next period ${esc(daysUntil(t, next.start))}` : 'Cycle tracking in progress'}</h2>
+        <h2>${next ? `Period ${esc(daysUntil(t, next.start))}` : 'Cycle tracking in progress'}</h2>
         <p>${next ? `Most likely around ${esc(fmtDate(next.start, { weekday:'short', day:'numeric', month:'short' }))}` : 'Keep logging to personalise future predictions.'}</p>
         ${next ? `<div class="ux-v5-range"><span>Prediction range</span><strong>${esc(range)}</strong><small>±${next.uncertainty} days</small></div>` : ''}
       </div>
@@ -194,7 +196,7 @@ function cycleHero() {
         <small>${next ? `Range ${esc(range)}` : 'Add more history'}</small>
       </button>
       <button class="ux-v5-info" data-v5-analysis>
-        <span class="ux-kicker">Prediction quality</span>
+        <span class="ux-kicker">History behind the estimate</span>
         <strong>${esc(confTitle)}</strong>
         <small>${esc(confBody)}</small>
       </button>
@@ -204,10 +206,24 @@ function cycleHero() {
       <div><span class="ux-kicker">What Orbit knows</span><h3>Measured vs estimated</h3></div>
       <div class="ux-v5-trust-row"><i class="actual"></i><span><strong>Logged by you</strong><small>Period days, symptoms, LH tests and BBT are observations.</small></span></div>
       <div class="ux-v5-trust-row"><i class="estimate"></i><span><strong>Estimated by Orbit</strong><small>Future period, PMS, fertile and ovulation timing carry uncertainty.</small></span></div>
-      ${st.adherenceArtifacts?.length ? `<div class="ux-v5-warning">⚠️ ${st.adherenceArtifacts.length} unusually long cycle interval ${st.adherenceArtifacts.length === 1 ? 'looks' : 'look'} like tracking may have been skipped. Orbit reduced its influence on the prediction.</div>` : ''}
+      ${st.adherenceArtifacts?.length ? `<div class="ux-v5-warning">⚠️ ${st.adherenceArtifacts.length} unusually long cycle interval ${st.adherenceArtifacts.length === 1 ? 'looks' : 'look'} like tracking may have been skipped. The recorded interval is preserved. Check your period history for missing entries.</div>` : ''}
       <p class="ux-v5-disclaimer">Fertile and ovulation estimates are not contraception guidance. LH/BBT can improve retrospective timing, but do not make this calendar a contraceptive method.</p>
     </div>`;
 
+  const action = wrap.querySelector('.ux-v5-feel');
+  wrap.prepend(action);
+  if (s.settings.pill?.enabled) {
+    wrap.querySelector('.ux-v5-hero')?.remove();
+    wrap.querySelector('.ux-v5-grid')?.remove();
+    wrap.querySelector('.ux-v5-trust')?.remove();
+    action.addEventListener('click', () => go('log', {date:t}));
+    return wrap;
+  }
+  if(cycleDay > 45){
+    const longCycle=document.createElement('div');longCycle.className='ux-long-cycle';longCycle.innerHTML=`<h2>Day ${cycleDay} since your last recorded start</h2><p>No new period start has been recorded. The current cycle has not been reset to a predicted date.</p>`;
+    wrap.querySelector('[data-cycle-ring]').replaceWith(longCycle);wrap.querySelector('.ux-ring-hint').remove();wrap.querySelector('.ux-ring-preview').remove();
+    action.addEventListener('click',()=>go('log',{date:t}));wrap.querySelector('[data-v5-calendar]').onclick=()=>go('calendar');wrap.querySelector('[data-v5-analysis]').onclick=()=>go('analysis');return wrap;
+  }
   let selectedIndex = initialIndex;
   let dragging = false;
   const ring = wrap.querySelector('[data-cycle-ring]');
@@ -280,6 +296,7 @@ function cycleHero() {
 }
 
 function enhanceCycle() {
+  if (get().profile.role === 'partner') return;
   const oldRing = document.querySelector('.ring-wrap');
   if (!oldRing || document.querySelector('.ux-v5-home')) return;
   const hero = cycleHero();
@@ -310,6 +327,10 @@ function enhanceTracking() {
     title.className = 'ux-v5-track-intro';
     title.innerHTML = `<span class="ux-kicker">Daily check-in</span><h2>Track what matters</h2><p>You can log only one thing and leave. More detail is optional.</p>`;
     toolbar.insertAdjacentElement('afterend', title);
+    const extra = document.createElement('details'); extra.className='tracking-extra';
+    extra.innerHTML='<summary>More tracking options</summary>';
+    const card=screen.querySelector('.card.flush');
+    if(card){ for(const cat of [...card.querySelectorAll('.cat')]){const id=cat.querySelector('[data-t]')?.dataset.t.split(':')[0]; if(id && !get().settings.quickLog.includes(id))extra.appendChild(cat); }card.appendChild(extra);}
   }
 }
 
@@ -317,11 +338,4 @@ function enhance() {
   try { enhanceCycle(); enhanceTracking(); } catch (err) { console.warn('Orbit v5 UX skipped:', err); }
 }
 
-let queued = false;
-new MutationObserver(() => {
-  if (queued) return;
-  queued = true;
-  requestAnimationFrame(() => { queued = false; enhance(); });
-}).observe(document.body, { childList: true, subtree: true });
-
-setTimeout(enhance, 40);
+export { enhance };

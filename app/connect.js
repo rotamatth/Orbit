@@ -9,7 +9,7 @@
 // Both routes share only cycle dates: period days, fertile window, ovulation,
 // PMS. Symptoms, moods, notes and numbers never leave the device.
 
-import { get, update, blankState } from './state.js';
+import { get, update, blankState, validDate, validateState } from './state.js';
 import { stats, diffDays, addDays, iso } from './cycle.js';
 
 /* ------------------------- base64url ------------------------- */
@@ -39,10 +39,13 @@ export function makeShareCode(state = get()) {
   const base = recent[0].start;
 
   const payload = {
-    v: 1,
+    v: 2,
     n: (state.profile.name || '').slice(0, 40),
     b: base,
     o: recent.map((c) => [diffDays(base, c.start), c.periodLength]),
+    d: Object.keys(state.days).filter(d => d >= base && ['light','medium','heavy','super-heavy'].includes(state.days[d].bleeding)).sort().map(d => [diffDays(base,d), 'medium']),
+    c: recent.map(c => diffDays(base,c.start)),
+    predict: !state.settings.pill?.enabled,
     a: st.avgCycle,
     p: st.avgPeriod,
     l: st.luteal,
@@ -67,14 +70,17 @@ export function shareLink(state = get()) {
 export function decodeShareCode(code) {
   let p;
   try {
+    if (typeof code !== 'string' || code.length > 100000) throw new Error('Code is too large.');
     p = JSON.parse(b64decode(code.trim()));
   } catch {
     throw new Error('That code could not be read. Check it was copied in full.');
   }
-  if (!p || p.v !== 1 || !p.b || !Array.isArray(p.o)) {
+  if (!p || ![1,2].includes(p.v) || !validDate(p.b) || !Array.isArray(p.o) || p.o.length > 14) {
     throw new Error('That code is not an Orbit share code.');
   }
 
+  if (p.o.some(row => !Array.isArray(row) || row.length !== 2 || !Number.isInteger(row[0]) || row[0] < 0 || row[0] > 36500 || !Number.isInteger(row[1]) || row[1] < 1 || row[1] > 366)) throw new Error('Invalid period interval.');
+  if (p.n != null && (typeof p.n !== 'string' || p.n.length > 40)) throw new Error('Invalid name.');
   const s = blankState();
   s.profile.name = p.n || 'Partner';
   s.profile.role = 'partner';
@@ -83,12 +89,23 @@ export function decodeShareCode(code) {
   s.settings.avgPeriod = p.p || 5;
   s.settings.luteal = p.l || 14;
 
-  p.o.forEach(([offset, len]) => {
-    const start = addDays(p.b, offset);
-    for (let i = 0; i < Math.max(1, len || 1); i++) {
-      s.days[addDays(start, i)] = { bleeding: 'medium' };
+  if (p.v === 2) {
+    if (!Array.isArray(p.d) || p.d.length > 5000 || !Array.isArray(p.c) || p.c.length > 14) throw new Error('Invalid shared dates.');
+    for (const row of p.d) {
+      if (!Array.isArray(row) || row.length !== 2 || !Number.isInteger(row[0]) || row[0] < 0 || row[0] > 36500 || !['none','spotting','light','medium','heavy','super-heavy'].includes(row[1])) throw new Error('Invalid bleeding record.');
+      s.days[addDays(p.b,row[0])] = { bleeding: row[1] };
     }
-  });
+    for (const offset of p.c) {
+      if (!Number.isInteger(offset) || offset < 0 || offset > 36500) throw new Error('Invalid cycle start.');
+      const date=addDays(p.b,offset); (s.days[date] ||= {}).cycleStart='start';
+    }
+    s.settings.predictionsPaused = p.predict === false;
+  } else {
+    // Legacy links only identify episode spans; do not invent intermediate flow logs.
+    for (const [offset] of p.o) s.days[addDays(p.b,offset)] = { cycleStart:'start' };
+    s.legacyShare = true;
+  }
+  validateState(s);
 
   return { state: s, sharedAt: p.t, name: s.profile.name };
 }
@@ -183,7 +200,7 @@ async function roomToken(cfg) {
 }
 
 function endpoint(cfg, qs = '') {
-  return `${cfg.url.replace(/\/$/, '')}/rest/v1/orbit_sync${qs}`;
+  return `${cfg.url.replace(/\/$/, '')}/rest/v1/rpc/${qs}`;
 }
 
 function headers(cfg, extra = {}) {
@@ -200,6 +217,7 @@ export async function syncPush() {
   const cfg = syncCfg();
   if (!cfg) return { skipped: true };
   const state = get();
+  if(state.profile.role === 'partner') return {skipped:true};
   const code = makeShareCode(state);
   if (!code) return { skipped: true, reason: 'nothing to share yet' };
 
@@ -208,17 +226,18 @@ export async function syncPush() {
     cfg.pass,
   );
 
-  const res = await fetch(endpoint(cfg), {
-    method: 'POST',
-    headers: headers(cfg, { Prefer: 'resolution=merge-duplicates' }),
-    body: JSON.stringify([{
-      id: `${await roomToken(cfg)}:${deviceId()}`,
-      payload,
-      updated_at: new Date().toISOString(),
-    }]),
+  let writeToken = localStorage.getItem('orbit.sync.writer');
+  if (!writeToken) {
+    writeToken = [...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toString(16).padStart(2,'0')).join('');
+    localStorage.setItem('orbit.sync.writer',writeToken);
+    localStorage.removeItem('orbit.device'); // A new writer secret needs a new owned row.
+  }
+  const res = await fetch(endpoint(cfg, 'orbit_push_v2'), {
+    method: 'POST', headers: headers(cfg),
+    body: JSON.stringify({ room: await roomToken(cfg), device: deviceId(), writer: writeToken, encrypted: payload }),
   });
 
-  if (!res.ok) throw new Error(`Push failed (${res.status}). ${await res.text()}`);
+  if (!res.ok) throw new Error(`Push failed (${res.status}). Install the v2 database setup in Sharing settings if upgrading.`);
   update((s) => { s.sync.lastPush = Date.now(); });
   return { ok: true };
 }
@@ -228,13 +247,11 @@ export async function syncPull() {
   const cfg = syncCfg();
   if (!cfg) return { skipped: true };
   const room = await roomToken(cfg);
-  const me = `${room}:${deviceId()}`;
-
-  const res = await fetch(
-    endpoint(cfg, `?id=like.${encodeURIComponent(room + ':')}*&select=id,payload,updated_at`),
-    { headers: headers(cfg) },
-  );
-  if (!res.ok) throw new Error(`Pull failed (${res.status}). ${await res.text()}`);
+  const me = deviceId();
+  const res = await fetch(endpoint(cfg, 'orbit_pull_v2'), {
+    method: 'POST', headers: headers(cfg), body: JSON.stringify({ room }),
+  });
+  if (!res.ok) throw new Error(`Pull failed (${res.status}). Install the v2 database setup in Sharing settings if upgrading.`);
 
   const rows = await res.json();
   const theirs = rows.filter((r) => r.id !== me);
@@ -267,22 +284,53 @@ export function syncEnabled() {
   return !!syncCfg();
 }
 
-export const SUPABASE_SQL = `create table if not exists public.orbit_sync (
-  id text primary key,
-  payload text not null,
-  updated_at timestamptz not null default now()
+// Capability-scoped RPCs: callers cannot enumerate the table or replace another
+// device's record without its separate random writer secret. Room tokens are secrets.
+export const SUPABASE_SQL = `create table if not exists public.orbit_sync_v2 (
+  room text not null, id text not null, writer text not null,
+  payload text not null, updated_at timestamptz not null default now(),
+  primary key (room,id)
 );
+alter table public.orbit_sync_v2 enable row level security;
+revoke all on public.orbit_sync_v2 from anon, authenticated;
 
-alter table public.orbit_sync enable row level security;
+create or replace function public.orbit_push_v2(room text, device text, writer text, encrypted text)
+returns void language plpgsql security definer set search_path = '' as $$
+begin
+  if room !~ '^[a-f0-9]{32}$' or device !~ '^[a-f0-9]{24}$' or writer !~ '^[a-f0-9]{64}$'
+     or length(encrypted) > 200000 then raise exception 'Invalid payload'; end if;
+  insert into public.orbit_sync_v2 as existing values (room,device,writer,encrypted,now())
+  on conflict on constraint orbit_sync_v2_pkey do update
+    set payload=excluded.payload, updated_at=now()
+    where existing.writer=excluded.writer;
+  if not found then raise exception 'Writer secret does not match'; end if;
+end $$;
 
-create policy "orbit read"  on public.orbit_sync for select to anon using (true);
-create policy "orbit write" on public.orbit_sync for insert to anon with check (true);
-create policy "orbit update" on public.orbit_sync for update to anon using (true) with check (true);`;
+create or replace function public.orbit_pull_v2(room text)
+returns table(id text, payload text, updated_at timestamptz)
+language sql security definer set search_path = '' as $$
+  select s.id,s.payload,s.updated_at from public.orbit_sync_v2 s
+  where s.room = orbit_pull_v2.room order by s.updated_at desc limit 20;
+$$;
+revoke all on function public.orbit_push_v2(text,text,text,text) from public;
+revoke all on function public.orbit_pull_v2(text) from public;
+grant execute on function public.orbit_push_v2(text,text,text,text) to anon;
+grant execute on function public.orbit_pull_v2(text) to anon;
+
+-- Close direct access to the old table; retain its encrypted rows for recovery.
+do $$ begin
+  if to_regclass('public.orbit_sync') is not null then
+    execute 'revoke all on public.orbit_sync from anon, authenticated';
+  end if;
+end $$;`;
 
 /* ------------------------- export / import ------------------------- */
 
 export function exportJSON(state = get()) {
-  return JSON.stringify({ app: 'orbit', exported: new Date().toISOString(), data: state }, null, 2);
+  const data = JSON.parse(JSON.stringify(state));
+  data.sync = { ...data.sync, pass: '', key: '', on: false };
+  data.settings.pin = null;
+  return JSON.stringify({ app: 'orbit', exported: new Date().toISOString(), data }, null, 2);
 }
 
 export function exportCSV(state = get()) {
@@ -297,7 +345,8 @@ export function exportCSV(state = get()) {
       if (c === 'date') return d;
       const v = day[c];
       if (v == null) return '';
-      const s = Array.isArray(v) ? v.join(' | ') : String(v);
+      let s = Array.isArray(v) ? v.join(' | ') : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+      if (/^[=+@\-\t\r]/.test(s)) s = "'" + s;
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     }).join(','));
   });

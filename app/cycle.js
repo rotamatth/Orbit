@@ -1,9 +1,9 @@
-// cycle.js — period history, calibrated predictions and phase estimates.
+// cycle.js — period history, history-based predictions and phase estimates.
 //
 // Design goals:
 //  • period predictions use at most the 12 most recent completed cycles;
 //  • period-length averages use at most the 6 most recent periods;
-//  • likely missed-tracking artifacts are down-weighted/repaired rather than blindly averaged;
+//  • likely missed-tracking artifacts are flagged without inventing missing periods;
 //  • predictions expose uncertainty instead of pretending a single date is certain;
 //  • positive LH and sustained BBT shifts can refine retrospective ovulation/luteal estimates;
 //  • fertile/ovulation dates remain estimates and are NOT contraception guidance.
@@ -106,7 +106,7 @@ export function bleedDays(state = get()) {
 }
 
 export function buildCycles(state = get()) {
-  const days = bleedDays(state);
+  const days = [...new Set([...bleedDays(state), ...Object.keys(state.days).filter(d => state.days[d].cycleStart === 'start')])].sort();
   if (!days.length) return [];
 
   const cycles = [];
@@ -117,7 +117,7 @@ export function buildCycles(state = get()) {
     const sinceStart = diffDays(cur.start, days[i]);
     // A single blank/spotting day can occur inside one period. A new substantial
     // bleed within 10 days is also kept in the same episode rather than called a new cycle.
-    if (gapFromPrev <= 2 || sinceStart < 10) cur.bleedDays.push(days[i]);
+    if (state.days[days[i]].cycleStart !== 'start' && (gapFromPrev <= 2 || sinceStart < 10)) cur.bleedDays.push(days[i]);
     else { cycles.push(cur); cur = { start: days[i], bleedDays: [days[i]] }; }
   }
   cycles.push(cur);
@@ -130,7 +130,7 @@ export function buildCycles(state = get()) {
       periodEnd: last,
       periodLength: diffDays(c.start, last) + 1,
       length: next ? diffDays(c.start, next.start) : null,
-      bleedDays: c.bleedDays,
+      bleedDays: c.bleedDays.filter(d => BLEED.has(state.days[d].bleeding)),
       index: i,
     };
   });
@@ -161,7 +161,7 @@ function normalizeCycleLengths(raw) {
       }
       if (best) {
         artifacts.push({ index, observed: x, adjusted: best.candidate, suspectedSkipped: best.multiple - 1 });
-        return best.candidate;
+        return x; // Preserve the observation; a suspected omission is not a confirmed one.
       }
     }
     return x;
@@ -186,15 +186,24 @@ function eggwhitePeak(state, start, end) {
   return hits.length ? hits[hits.length - 1] : null;
 }
 
-function bbtShift(state, start, end) {
+export const BBT_DISTURBANCES = new Set(['poor-sleep','fever','alcohol','late','travel','illness']);
+export function bbtQuality(day) {
+  if (day?.bbt == null || typeof day.bbt !== 'number' || !Number.isFinite(day.bbt) || day.bbt < 34 || day.bbt > 40) return 'missing';
+  const context = Array.isArray(day.bbtContext) ? day.bbtContext : [];
+  const illness = Array.isArray(day.ailment) ? day.ailment : [];
+  return context.some(x => BBT_DISTURBANCES.has(x)) || illness.includes('fever') ? 'disturbed' : 'usable';
+}
+
+export function bbtShift(state, start, end) {
   const rows = Object.keys(state.days).sort()
-    .filter((d) => inRange(d, addDays(start, 5), end) && Number.isFinite(Number(state.days[d].bbt)))
+    .filter((d) => inRange(d, addDays(start, 5), end) && bbtQuality(state.days[d]) === 'usable')
     .map((d) => ({ d, t: Number(state.days[d].bbt) }));
 
   // Conservative retrospective confirmation: six prior readings + three consecutive
   // elevated days. Temperature is not used to claim future ovulation before the shift.
   for (let i = 6; i <= rows.length - 3; i++) {
     if (diffDays(rows[i].d, rows[i + 1].d) !== 1 || diffDays(rows[i + 1].d, rows[i + 2].d) !== 1) continue;
+    if (diffDays(rows[i - 6].d, rows[i - 1].d) !== 5 || diffDays(rows[i - 1].d, rows[i].d) !== 1) continue;
     const baseline = median(rows.slice(i - 6, i).map((r) => r.t));
     if (baseline == null) continue;
     if (rows[i].t >= baseline + 0.20 && rows[i + 1].t >= baseline + 0.20 && rows[i + 2].t >= baseline + 0.20) {
@@ -205,7 +214,7 @@ function bbtShift(state, start, end) {
 }
 
 export function ovulationEvidence(state, cycleStart, nextStart = null) {
-  const end = nextStart || addDays(cycleStart, 45);
+  const end = nextStart || addDays(today(), 1);
   const lh = positiveLH(state, cycleStart, end);
   const bbt = bbtShift(state, cycleStart, end);
   const fluid = eggwhitePeak(state, cycleStart, end);
@@ -229,10 +238,10 @@ function learnedLuteal(state, cycles, fallback = 13) {
     const n = diffDays(ev.date, cycles[i + 1].start);
     if (n >= 8 && n <= 20) vals.push(n);
   }
-  return { value: vals.length ? Math.round(median(vals)) : fallback, samples: vals.length, values: vals };
+  return { value: vals.length >= 3 ? Math.round(median(vals.slice(-12))) : fallback, samples: vals.length, values: vals };
 }
 
-/* --------------------------- averages + calibrated uncertainty --------------------------- */
+/* --------------------------- averages + heuristic uncertainty --------------------------- */
 
 export function stats(state = get()) {
   const cycles = buildCycles(state);
@@ -240,7 +249,7 @@ export function stats(state = get()) {
   const rawLengths = completed.map((c) => c.length).slice(-12);
   const normalized = normalizeCycleLengths(rawLengths);
   const lengths = normalized.values.slice(-12);
-  const periods = cycles.filter((c) => c.periodLength >= 1 && c.periodLength <= 14).map((c) => c.periodLength).slice(-6);
+  const periods = cycles.filter((c) => c.length != null && c.bleedDays.length > 0 && c.periodLength >= 1 && c.periodLength <= 14).map((c) => c.periodLength).slice(-6);
   const s = state.settings;
 
   const personal = weightedMean(lengths, 12);
@@ -252,7 +261,7 @@ export function stats(state = get()) {
   const avgCycleRaw = personal == null ? priorMean : ((personal * n) + (priorMean * priorStrength)) / (n + priorStrength);
   const avgPeriodRaw = weightedMean(periods, 6, 0.88) || s.avgPeriod || 5;
   const recent = lengths.slice(-6);
-  const lutealLearned = learnedLuteal(state, cycles, 13);
+  const lutealLearned = learnedLuteal(state, cycles, Number(s.luteal) || 14);
   const sigma = robustSigma(lengths);
   const q10 = lengths.length >= 4 ? quantile(lengths, .10) : avgCycleRaw - 2;
   const q90 = lengths.length >= 4 ? quantile(lengths, .90) : avgCycleRaw + 2;
@@ -268,14 +277,15 @@ export function stats(state = get()) {
     avgPeriod: Math.round(avgPeriodRaw),
     luteal: lutealLearned.value,
     lutealSamples: lutealLearned.samples,
-    uncertainty: Math.min(12, baseHalfWidth),
+    uncertainty: Math.max(baseHalfWidth, normalized.artifacts.length ? Math.ceil((Math.max(...lengths) - Math.min(...lengths)) / 2) : 0),
     variation: recent.length >= 2 ? Math.max(...recent) - Math.min(...recent) : null,
     tracked: lengths.length,
     confident: lengths.length >= 3 && normalized.artifacts.length === 0,
-    confidenceLevel: lengths.length >= 6 ? 'high' : lengths.length >= 3 ? 'moderate' : 'learning',
+    confidenceLevel: normalized.artifacts.length || (recent.length > 1 && Math.max(...recent) - Math.min(...recent) > 10) ? 'uncertain' : lengths.length >= 3 ? 'moderate' : 'learning',
     shortest: recent.length ? Math.round(Math.min(...recent)) : null,
     longest: recent.length ? Math.round(Math.max(...recent)) : null,
-    model: 'calibrated-adherence-v3',
+    model: 'observed-history-v4',
+    suppressed: !!(state.settings.pill?.enabled || state.settings.predictionsPaused),
   };
 }
 
@@ -324,14 +334,14 @@ export function forecast(state = get(), months = 13) {
   });
 
   const anchor = cycles.length ? cycles[cycles.length - 1].start : null;
-  if (anchor) {
+  if (anchor && !st.suppressed) {
     // Sequential projection matters: don't calculate each future period from today's
     // anchor with a single rounded multiplier, which can create drift artifacts.
     let start = anchor;
     for (let i = 1; i <= months; i++) {
-      start = addDays(start, Math.round(st.avgCycleExact));
+      start = addDays(anchor, Math.round(st.avgCycleExact * i));
       // Uncertainty grows with horizon. This is deliberately visible in the UI.
-      const spread = Math.min(18, Math.max(2, Math.ceil(st.uncertainty * Math.sqrt(i))));
+      const spread = Math.max(2, Math.ceil(st.uncertainty * Math.sqrt(i)));
       windows.push(projectedWindow(start, st.avgCycle, st.avgPeriod, st.luteal, spread, false, null, i));
     }
   }
@@ -349,7 +359,7 @@ export function classify(dateISO, state = get(), fc = null) {
   const st = f.stats;
   let win = null;
   for (let i = f.windows.length - 1; i >= 0; i--) {
-    if (f.windows[i].start <= dateISO) { win = f.windows[i]; break; }
+    if (f.windows[i].start <= dateISO && (dateISO > today() || f.windows[i].actual)) { win = f.windows[i]; break; }
   }
 
   const out = {
@@ -370,6 +380,10 @@ export function classify(dateISO, state = get(), fc = null) {
   const inPeriodWindow = within(dateISO, win.start, win.periodEnd);
   if (!out.isPeriod && inPeriodWindow) { out.predicted = !win.actual; out.isPeriod = !win.actual; }
 
+  if (st.suppressed) { out.phase = out.isPeriod ? 'menstrual' : null; return out; }
+  const overdue = win.actual && !st.cycles.some(c => c.start > win.start && c.start <= dateISO) && diffDays(win.start, dateISO) > st.avgCycle + st.uncertainty;
+  if (overdue) { out.phase = out.isPeriod ? 'menstrual' : null; out.uncertain = true; return out; }
+
   if (state.settings.showFertile) {
     out.isFertile = within(dateISO, win.fertileStart, win.fertileEnd);
     out.isOvulation = dateISO === win.ovulation;
@@ -387,10 +401,10 @@ export function classify(dateISO, state = get(), fc = null) {
 
 export const PHASE_META = {
   menstrual:  { label: 'Period', color: 'var(--menstrual)', blurb: 'Recorded bleeding or a near-term period estimate.' },
-  follicular: { label: 'Follicular', color: 'var(--follicular)', blurb: 'The phase after menstruation and before the estimated fertile window.' },
+  follicular: { label: 'Follicular estimate', color: 'var(--follicular)', blurb: 'The phase after menstruation and before the estimated fertile window.' },
   fertile:    { label: 'Fertile estimate', color: 'var(--fertile)', blurb: 'An estimate, not a measurement. Do not use it as contraception.' },
   ovulation:  { label: 'Ovulation estimate', color: 'var(--ovulation)', blurb: 'Estimated from cycle timing; positive LH and BBT can strengthen retrospective timing.' },
-  luteal:     { label: 'Luteal', color: 'var(--luteal)', blurb: 'The phase after estimated ovulation and before the next period.' },
+  luteal:     { label: 'Luteal estimate', color: 'var(--luteal)', blurb: 'The phase after estimated ovulation and before the next period.' },
   pms:        { label: 'PMS estimate', color: 'var(--pms)', blurb: 'A predicted premenstrual window based on recent cycle history.' },
 };
 
@@ -405,7 +419,8 @@ export function headline(state = get()) {
   }
 
   const cls = classify(t, state, f);
-  const upcoming = f.windows.find((w) => !w.actual && w.start >= t);
+  if (st.suppressed) return { title: state.settings.pill?.enabled ? 'Pill tracking' : 'Cycle estimates paused', sub: 'Calendar forecasts are paused', cycleDay: null, phase: null, cls, f, stats: st, late: 0 };
+  const upcoming = nextPeriod(f);
   const lastActual = st.cycles[st.cycles.length - 1];
   const expected = addDays(lastActual.start, Math.round(st.avgCycleExact));
   const late = diffDays(expected, t);
@@ -428,4 +443,24 @@ export function headline(state = get()) {
   }
 
   return { title, sub, cycleDay: cls.cycleDay, phase: cls.phase, cls, f, stats: st, nextStart: upcoming?.start, late };
+}
+
+export function nextPeriod(f = forecast()) {
+  return f.windows.find(w => !w.actual) || null;
+}
+
+// Rolling origin: no future logs are visible to the prediction being scored.
+export function backtest(state = get()) {
+  if (state.settings.pill?.enabled) return { samples: 0, meanError: null, coverage: null };
+  const cycles = buildCycles(state);
+  const errors = []; let covered = 0;
+  for (let i = 3; i < cycles.length; i++) {
+    const cutoff = cycles[i - 1].start;
+    const training = { ...state, days: Object.fromEntries(Object.entries(state.days).filter(([d]) => d <= cutoff)) };
+    const estimate = nextPeriod(forecast(training, 1));
+    if (!estimate) continue;
+    errors.push(Math.abs(diffDays(estimate.start, cycles[i].start)));
+    if (cycles[i].start >= estimate.startMin && cycles[i].start <= estimate.startMax) covered++;
+  }
+  return { samples: errors.length, meanError: errors.length ? errors.reduce((a,b) => a+b,0)/errors.length : null, coverage: errors.length ? covered/errors.length : null };
 }

@@ -5,7 +5,9 @@
 
 import { get, update } from './state.js';
 import { today, addDays, diffDays, fmtDate } from './cycle.js';
-import { esc, toast } from './ui.js';
+import { esc, toast, trapFocus } from './ui.js';
+
+import { packInfo as computePack, doseTiming, adherence as computeAdherence, pillSchedule } from './pill-model.js';
 
 const SIDE_EFFECTS = [
   ['nausea','Nausea','🤢'],['headache','Headache','🤕'],['breast-tenderness','Breast tenderness','🫶'],
@@ -32,38 +34,27 @@ function ensurePillSettings(st){
   return st.settings.pill;
 }
 
-function packInfo(date=today(), s=get()){
-  const p=pill(s); if(!p?.enabled||!p.packStart) return null;
-  const active=Math.max(1,Number(p.activePills)||21), placebo=Math.max(0,Number(p.placeboPills)||0), total=active+placebo;
-  const elapsed=diffDays(p.packStart,date);
-  if(elapsed<0) return {day:null,total,active,placebo,kind:'before'};
-  const idx=((elapsed%total)+total)%total;
-  const day=idx+1;
-  return {day,total,active,placebo,kind:day<=active?'active':'placebo',activeDay:day<=active?day:null,placeboDay:day>active?day-active:null};
-}
-
-function timeDelta(actual,scheduled){
-  if(!actual||!scheduled)return null;
-  const mins=(x)=>{const [h,m]=x.split(':').map(Number);return h*60+m;};
-  let d=mins(actual)-mins(scheduled); if(d < -720)d+=1440; if(d>720)d-=1440;
-  return d;
-}
-function timeCopy(day,p){
-  if(!day?.pillTakenAt)return '';
-  const d=timeDelta(day.pillTakenAt,p.scheduledTime);
-  if(d==null)return `Taken at ${day.pillTakenAt}`;
-  if(Math.abs(d)<=5)return `Taken at ${day.pillTakenAt} · on schedule`;
-  return `Taken at ${day.pillTakenAt} · ${Math.abs(d)} min ${d>0?'after':'before'} usual time`;
+function packInfo(date=today(), s=get()) { return computePack(date,s); }
+function timeCopy(date,day,p) {
+  const timing = doseTiming(date,day,day.pillSchedule || p);
+  if (!timing) return '';
+  if (timing.legacy) return `Logged time ${timing.label} · actual date not recorded`;
+  return `Taken ${timing.actual.toLocaleString()} · ${Math.abs(timing.minutes)} min ${timing.minutes >= 0 ? 'after' : 'before'} scheduled dose`;
 }
 
 function setStatus(date,status, takenAt=null){
   update(st=>{
     const d=st.days[date]||(st.days[date]={});
+    if (!status) { delete d.pillStatus; delete d.pillTakenAt; delete d.pillSchedule; delete d.pillScheduledAt; return; }
     d.pillStatus=status;
-    if(status==='taken'||status==='late'||status==='vomited') d.pillTakenAt=takenAt || d.pillTakenAt || new Date().toTimeString().slice(0,5);
+    d.pillSchedule = { ...(pillSchedule(date,st) || st.settings.pill) };
+    delete d.pillSchedule.history;
+    d.pillScheduledAt = new Date(date+'T'+d.pillSchedule.scheduledTime+':00').toISOString();
+    if(status==='taken'||status==='late'||status==='vomited') d.pillTakenAt=takenAt || d.pillTakenAt || (date === today() ? new Date().toISOString() : null);
     else delete d.pillTakenAt;
   });
-  toast(status==='taken'?'Pill marked taken':status==='late'?'Late pill logged':status==='missed'?'Missed pill logged':'Vomiting after pill logged');
+  window.__orbit?.render();
+  toast(!status ? 'Pill entry cleared' : status==='taken'?'Pill marked taken':status==='late'?'Late pill logged':status==='missed'?'Missed pill logged':'Vomiting after pill logged');
 }
 
 function safetyForStatus(status){
@@ -81,11 +72,28 @@ function pillCard(date=today(), compact=false){
     <div class="pill11-head"><div><span class="ux-kicker">Birth control pill</span><h2>${esc(p.name||'Pill')}</h2></div><button type="button" class="pill11-settings" data-pill-settings aria-label="Pill settings">•••</button></div>
     <div class="pill11-pack"><div><span>${kind}</span><strong>${info?.day?`Day ${info.day} of ${info.total}`:'Set pack start'}</strong></div><div><span>Usual time</span><strong>${esc(p.scheduledTime||'—')}</strong></div></div>
     <div class="pill11-current is-${status}">
-      <div><span>${isToday?'Today':fmtDate(date,{weekday:'short',day:'numeric',month:'short'})}</span><strong>${status==='taken'?'Taken ✓':status==='late'?'Taken late':status==='missed'?'Missed':status==='vomited'?'Vomited after pill':'Not logged yet'}</strong><small>${esc(timeCopy(d,p))}</small></div>
-      ${isToday&&status==='not-logged'&&info?.kind!=='placebo'?'<button type="button" data-pill-take>Take pill</button>':''}
+      <div><span>${isToday?'Today':fmtDate(date,{weekday:'short',day:'numeric',month:'short'})}</span><strong>${status==='taken'?'Taken ✓':status==='late'?'Taken late':status==='missed'?'Missed':status==='vomited'?'Vomited after pill':'Not logged yet'}</strong><small>${esc(timeCopy(date,d,p))}</small></div>
+      ${isToday&&status==='not-logged'&&info?.kind!=='placebo'?'<button type="button" data-pill-take>Mark as taken</button>':''}
     </div>
     ${safetyForStatus(status)?`<div class="pill11-warning">${esc(safetyForStatus(status))}</div>`:''}
     ${!compact?`<div class="pill11-actions">${STATUS.map(([id,label,sym])=>`<button type="button" data-pill-status="${id}" aria-pressed="${status===id}"><b>${sym}</b><span>${label}</span></button>`).join('')}</div>`:''}`;
+  if (!compact) {
+    const field = document.createElement('label');
+    field.className = 'pill11-timestamp';
+    field.innerHTML = '<span>Actual date and time taken (optional)</span><input class="input" type="datetime-local" data-pill-actual><small>For past doses, leave blank if you do not know the time.</small><button type="button" data-pill-clear>Clear pill entry</button>';
+    const input = field.querySelector('input');
+    if (d.pillTakenAt && !/^\d{2}:\d{2}$/.test(d.pillTakenAt)) {
+      const at = new Date(d.pillTakenAt); input.value = new Date(at.getTime()-at.getTimezoneOffset()*60000).toISOString().slice(0,16);
+    }
+    input.addEventListener('change', () => {
+      if (!d.pillStatus || d.pillStatus === 'missed') { toast('Choose a taken status first'); return; }
+      const value = input.value ? new Date(input.value).toISOString() : null;
+      update(st => { if (value) st.days[date].pillTakenAt = value; else delete st.days[date].pillTakenAt; });
+      window.__orbit?.render();
+    });
+    field.querySelector('[data-pill-clear]').onclick = () => setStatus(date,null);
+    el.appendChild(field);
+  }
   el.querySelector('[data-pill-take]')?.addEventListener('click',()=>{setStatus(date,'taken');refresh();});
   el.querySelectorAll('[data-pill-status]').forEach(b=>b.addEventListener('click',()=>{setStatus(date,b.dataset.pillStatus);refresh();}));
   el.querySelector('[data-pill-settings]')?.addEventListener('click',openSetup);
@@ -107,9 +115,14 @@ function openSetup(){
     ${p.enabled?'<button class="btn ghost" data-disable>Turn off Pill mode</button>':''}
   </div>`;
   document.body.appendChild(overlay);
-  const close=()=>overlay.remove(); overlay.addEventListener('click',e=>{if(e.target===overlay)close();}); overlay.querySelector('[data-close]').onclick=close;
+  const releaseFocus = trapFocus(overlay.querySelector('[role=dialog]'), () => close());
+  const close=()=>{releaseFocus();overlay.remove();}; overlay.addEventListener('click',e=>{if(e.target===overlay)close();}); overlay.querySelector('[data-close]').onclick=close;
   overlay.querySelector('[data-save]').onclick=()=>{
-    update(st=>{const q=ensurePillSettings(st);q.enabled=overlay.querySelector('[data-enabled]').checked;q.name=overlay.querySelector('[data-name]').value.trim();q.type=overlay.querySelector('[data-type]').value;q.scheduledTime=overlay.querySelector('[data-time]').value||'21:00';q.packStart=overlay.querySelector('[data-start]').value||today();q.activePills=Math.max(1,Number(overlay.querySelector('[data-active]').value)||21);q.placeboPills=Math.max(0,Number(overlay.querySelector('[data-placebo]').value)||0);if(!q.startedOn)q.startedOn=today();});
+    const fields = [...overlay.querySelectorAll('input')];
+    if (fields.some(x => !x.reportValidity())) return;
+    update(st=>{const q=ensurePillSettings(st); const previous = {...q}; delete previous.history;
+      if (!q.history) q.history = q.enabled ? [{...previous,effectiveFrom:q.packStart}] : [];
+q.enabled=overlay.querySelector('[data-enabled]').checked;q.name=overlay.querySelector('[data-name]').value.trim();q.type=overlay.querySelector('[data-type]').value;q.scheduledTime=overlay.querySelector('[data-time]').value||'21:00';q.packStart=overlay.querySelector('[data-start]').value||today();q.activePills=Math.max(1,Number(overlay.querySelector('[data-active]').value)||21);q.placeboPills=Math.max(0,Number(overlay.querySelector('[data-placebo]').value)||0);if(!q.startedOn)q.startedOn=today(); const snapshot={...q};delete snapshot.history;q.history.push({...snapshot,effectiveFrom:q.history.length ? today() : q.packStart}); st.settings.reminders.pill.time=q.scheduledTime;});
     close();toast('Pill tracking updated');window.__orbit?.render?.();setTimeout(refresh,80);
   };
   overlay.querySelector('[data-disable]')?.addEventListener('click',()=>{update(st=>ensurePillSettings(st).enabled=false);close();toast('Pill mode turned off');window.__orbit?.render?.();});
@@ -122,7 +135,10 @@ function setupCTA(){
 }
 
 function enhanceHome(){
-  const home=document.querySelector('.ux-v5-home');if(!home)return;
+  if(document.getElementById('app')?.dataset.view !== 'cycle') return;
+  let home=document.querySelector('.ux-v5-home');
+  if(!home && enabled()){home=document.createElement('section');home.className='ux-v5-home';document.querySelector('#app .screen')?.prepend(home);}
+  if(!home)return;
   const s=get(),p=pill(s);
   document.body.classList.toggle('orbit-pill-active',!!p?.enabled);
   if(p?.enabled){
@@ -131,7 +147,7 @@ function enhanceHome(){
       if(prevention)prevention.insertAdjacentElement('beforebegin',card); else home.prepend(card);
     }
     const prevention=home.querySelector('[data-ux7-prevention]');
-    if(prevention){prevention.classList.add('pill11-cycle-suppressed');prevention.innerHTML='<div class="pill11-hormonal-note"><span>💊</span><div><strong>Pill mode is active</strong><p>Orbit is not using calendar fertile-window estimates to judge contraceptive protection. Pill adherence and your pill’s own instructions take priority.</p></div></div>';}
+    if(prevention && !prevention.classList.contains('pill11-cycle-suppressed')){prevention.classList.add('pill11-cycle-suppressed');prevention.innerHTML='<div class="pill11-hormonal-note"><span>💊</span><div><strong>Pill mode is active</strong><p>Orbit is not using calendar fertile-window estimates to judge contraceptive protection. Pill adherence and your pill’s own instructions take priority.</p></div></div>';}
   } else if(!home.querySelector('[data-pill11-setup]')){
     const feel=home.querySelector('.ux-v5-feel');if(feel)feel.insertAdjacentElement('beforebegin',setupCTA());
   }
@@ -152,25 +168,13 @@ function enhanceTrack(){
   if(!screen.querySelector('[data-pill11-side]')){const fert=screen.querySelector('[data-ux7-fertility-log]');const side=sideEffectsEditor(date);if(fert)fert.insertAdjacentElement('beforebegin',side);else screen.appendChild(side);}
 }
 
-function adherence(days=28,s=get()){
-  const dates=[];for(let i=days-1;i>=0;i--)dates.push(addDays(today(),-i));
-  const active=dates.filter(d=>packInfo(d,s)?.kind==='active');
-  const logged=active.map(d=>({date:d,day:s.days[d]||{}}));
-  const taken=logged.filter(x=>['taken','late'].includes(x.day.pillStatus)).length;
-  const late=logged.filter(x=>x.day.pillStatus==='late').length;
-  const missed=logged.filter(x=>x.day.pillStatus==='missed').length;
-  const vomited=logged.filter(x=>x.day.pillStatus==='vomited').length;
-  let streak=0;for(let i=logged.length-1;i>=0;i--){if(['taken','late'].includes(logged[i].day.pillStatus))streak++;else break;}
-  const side={};for(const x of logged)for(const id of arr(x.day.pillSideEffects))side[id]=(side[id]||0)+1;
-  const common=Object.entries(side).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  return {scheduled:active.length,taken,late,missed,vomited,streak,common,pct:active.length?Math.round(taken/active.length*100):0};
-}
+function adherence(days=28,s=get()){ return computeAdherence(s,days); }
 
 function analysisPanel(){
   const a=adherence(),p=pill();const el=document.createElement('section');el.className='pill11-analysis';el.dataset.pill11Analysis='1';
   el.innerHTML=`<div class="pill11-analysis-head"><div><span class="ux-kicker">Birth control pill</span><h2>Adherence & side effects</h2></div><button data-pill-settings>Settings</button></div>
-    <div class="pill11-metrics"><div><strong>${a.pct}%</strong><span>taken, last 28 days</span></div><div><strong>${a.missed}</strong><span>missed</span></div><div><strong>${a.late}</strong><span>late</span></div><div><strong>${a.streak}</strong><span>current streak</span></div></div>
-    <div class="pill11-insight"><span>Pack</span><strong>${esc(p.name||'Pill')} · ${p.activePills}+${p.placeboPills}</strong><small>Usual time ${esc(p.scheduledTime||'—')}</small></div>
+    <div class="pill11-metrics"><div><strong>${a.pct == null ? '—' : a.pct+'%'}</strong><span>recorded taken / due doses</span></div><div><strong>${a.missed}</strong><span>missed</span></div><div><strong>${a.late}</strong><span>late</span></div><div><strong>${a.streak}</strong><span>current streak</span></div></div>
+    <p>${a.unknown} due doses not logged · ${a.missed} explicitly missed. Missing logs are not assumed to be missed pills.</p><div class="pill11-insight"><span>Pack</span><strong>${esc(p.name||'Pill')} · ${p.activePills}+${p.placeboPills}</strong><small>Usual time ${esc(p.scheduledTime||'—')}</small></div>
     <div class="pill11-insight"><span>Most logged side effects</span>${a.common.length?a.common.map(([id,n])=>{const x=SIDE_EFFECTS.find(y=>y[0]===id);return `<div class="pill11-side-row"><b>${x?.[2]||'•'} ${esc(x?.[1]||id)}</b><strong>${n} day${n===1?'':'s'}</strong></div>`;}).join(''):'<p>No pill side effects logged in this window.</p>'}</div>
     <p class="pill11-analysis-note">Adherence statistics describe what you logged. They do not determine contraceptive protection after a late/missed pill; use the instructions for your exact pill.</p>`;
   el.querySelector('[data-pill-settings]').onclick=openSetup;return el;
@@ -188,6 +192,5 @@ function enhanceMore(){
 function refresh(){
   try{enhanceHome();enhanceTrack();enhanceAnalysis();enhanceMore();}catch(err){console.warn('Orbit pill UX skipped:',err);}
 }
-let q=false;new MutationObserver(()=>{if(q)return;q=true;requestAnimationFrame(()=>{q=false;refresh();});}).observe(document.body,{childList:true,subtree:true});setTimeout(refresh,120);
-
+export { refresh as enhance };
 window.__orbitPill={openSetup,packInfo,adherence};

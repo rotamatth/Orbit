@@ -2,7 +2,7 @@
 // The ring now reads clockwise from the last recorded period start toward the next estimate.
 
 import { get } from './state.js';
-import { today, diffDays, fmtDate, forecast } from './cycle.js';
+import { today, diffDays, fmtDate, forecast, nextPeriod } from './cycle.js';
 
 function enhanceCycleClock() {
   const ring = document.querySelector('[data-cycle-ring]');
@@ -16,7 +16,7 @@ function enhanceCycleClock() {
 
   const t = today();
   const lastPeriod = [...cycles].reverse().find((c) => c.start <= t) || cycles[cycles.length - 1];
-  const next = f.windows.find((w) => !w.actual && w.start > t);
+  const next = nextPeriod(f);
   if (!lastPeriod) return;
 
   ring.dataset.clockV6 = '1';
@@ -76,16 +76,4 @@ function enhanceCycleClock() {
   if (hint) hint.textContent = '12 o’clock is Day 1 — the start of your last period. Move clockwise toward the next estimated period.';
 }
 
-let queued = false;
-new MutationObserver(() => {
-  if (queued) return;
-  queued = true;
-  requestAnimationFrame(() => {
-    queued = false;
-    try { enhanceCycleClock(); } catch (err) { console.warn('Orbit cycle clock v6 skipped:', err); }
-  });
-}).observe(document.body, { childList:true, subtree:true });
-
-setTimeout(() => {
-  try { enhanceCycleClock(); } catch (err) { console.warn('Orbit cycle clock v6 skipped:', err); }
-}, 80);
+export { enhanceCycleClock as enhance };
