@@ -84,7 +84,7 @@ ok('cycle day counts from 1', C.classify(startDates[2]).cycleDay === 1);
 console.log('\n— share code round trip —');
 const code = K.makeShareCode();
 ok('code is url-safe', /^[A-Za-z0-9_-]+$/.test(code));
-ok('code is compact', code.length < 900, `${code.length} chars`);
+ok('code is compact', code.length < 4000, `${code.length} chars`);
 const back = K.decodeShareCode(code);
 const theirCycles = C.buildCycles(back.state);
 ok('cycle starts survive the round trip',
@@ -92,7 +92,7 @@ ok('cycle starts survive the round trip',
    theirCycles.map(c=>c.start).join());
 ok('period lengths survive', theirCycles.every(c => c.periodLength === 5));
 ok('predictions agree', C.stats(back.state).avgCycle === st.avgCycle);
-ok('NO symptoms leak through', Object.values(back.state.days).every(d => Object.keys(d).join() === 'bleeding'));
+ok('NO symptoms leak through', Object.values(back.state.days).every(d => Object.keys(d).every(k => ['bleeding','cycleStart'].includes(k))));
 
 console.log('\n— privacy wall: symptoms must not be in the payload —');
 S.update(s => { s.days[startDates[6]].pain = ['cramps']; s.days[startDates[6]].note = 'SECRETNOTE'; s.days[startDates[6]].feelings = ['sad']; });

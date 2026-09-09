@@ -1,23 +1,16 @@
-# Tests
+# Regression checks
 
-Two suites, no test framework — plain Node scripts that print pass/fail and exit non-zero
-on failure.
+Requires Node 22 or newer. The application still has no runtime dependencies or build step.
 
-```bash
-cd tests
-node logic.test.mjs          # 45 assertions, no dependencies
-npm install jsdom
-node dom.test.mjs            # 52 assertions, renders every screen
+```sh
+npm ci --ignore-scripts
+npm test
 ```
 
-`logic.test.mjs` covers cycle detection, averages, forecasting, phase classification,
-the share-code round trip, the privacy wall, encryption, PIN hashing, CSV export and
-edge cases (no data, one cycle, malformed input).
+- `logic.test.mjs`: cycle detection, forecasts, date classification, sharing and encryption.
+- `reliability.test.mjs`: failed saves, previous-copy recovery, undo, invalid imports, explicit cycle starts, disturbed BBT, irregular intervals, exact shared dates, dose timestamps and historical backtesting.
+- `dom.test.mjs`: imports the actual `main-v5.js` entry point and every active screen extension; covers routes, logging, partner privacy, pill mode, dose refresh, focus, validation and reminders.
+- `offline.test.mjs`: checks that every shell file exists, incomplete installs fail, unrelated caches survive and missing scripts are not replaced with HTML.
+- `sync.test.mjs`: executes the supplied SQL in a local PostgreSQL-compatible PGlite instance and verifies anonymous table access is denied, room reads are scoped, and another writer cannot replace a record.
 
-`dom.test.mjs` boots the real app in jsdom with six cycles of seeded data, renders all
-12 routes, exercises chip taps, settings, sheets, navigation and the full partner flow,
-and asserts zero console errors across the run.
-
-The three privacy-wall assertions in `logic.test.mjs` and the
-"no symptom words leak into partner view" assertion in `dom.test.mjs` are the important
-ones — see HANDOFF.md section 5.
+The fixtures are synthetic. Passing checks does not establish clinical accuracy. Real-device Safari installation, storage pressure, offline upgrades, accessibility and notification behavior still need device testing.

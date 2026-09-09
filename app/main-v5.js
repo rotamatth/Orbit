@@ -1,3 +1,9 @@
+import { enhance as enhanceV4 } from './ux-v4.js';
+import { enhance as enhanceV5 } from './ux-v5.js';
+import { enhance as enhanceV6 } from './ux-v6.js';
+import { enhance as enhanceReliability } from './reliability-v7.js';
+import { enhance as enhancePill } from './pill-v11.js';
+import { initStorageUI } from './storage-ui.js';
 // main-v5.js — routing, boot and a defensive cycle-home fallback.
 
 import { get, update } from './state.js';
@@ -106,9 +112,12 @@ function render() {
   }
 
   const root = el();
+  root.dataset.view = view;
   root.innerHTML = out.html + navHTML();
   try { out.mount?.(root); } catch (err) { console.warn('Orbit mount warning:', err); }
   wireChrome(root);
+  document.body.classList.toggle('orbit-pill-active', !!s.settings.pill?.enabled);
+  if (view !== 'partner') for (const enhance of [enhanceV4,enhanceV5,enhanceV6,enhanceReliability,enhancePill]) enhance();
 
   const key = view + JSON.stringify(params);
   requestAnimationFrame(() => window.scrollTo(0, scrollMemory[key] || 0));
@@ -178,7 +187,7 @@ function start() {
   render();
   handleConnectHash();
   checkReminders();
-  if (syncEnabled()) syncNow().then(() => render()).catch(() => {});
+  if (syncEnabled()) syncNow().then(() => render()).catch(err => toast(err.message));
 }
 
 function boot() {
@@ -204,20 +213,19 @@ window.__orbit = { render, go, back };
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
+    render();
     checkReminders();
-    if (syncEnabled()) syncNow().then(() => render()).catch(() => {});
+    if (syncEnabled()) syncNow().then(() => render()).catch(err => toast(err.message));
   }
 });
 
 window.addEventListener('load', () => {
-  try { navigator.serviceWorker?.register('sw.js').catch(() => {}); } catch { /* unsupported */ }
+  try { navigator.serviceWorker?.register('sw.js').then(reg => {
+      const offer = () => { if (!reg.waiting) return; const b=document.createElement('button');b.className='update-ready';b.textContent='Update ready — reload Orbit';b.onclick=()=>{reg.waiting.postMessage({type:'ACTIVATE_UPDATE'});};document.body.appendChild(b); };
+      offer();reg.addEventListener('updatefound',()=>reg.installing?.addEventListener('statechange',offer));
+      navigator.serviceWorker.addEventListener('controllerchange',()=>location.reload());
+    }).catch(() => {}); } catch { /* unsupported */ }
 });
 
-let lastTouch = 0;
-document.addEventListener('touchend', (e) => {
-  const now = Date.now();
-  if (now - lastTouch < 300 && !e.target.closest('.cal-cell')) e.preventDefault();
-  lastTouch = now;
-}, { passive: false });
-
+initStorageUI();
 boot();

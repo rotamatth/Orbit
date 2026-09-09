@@ -1,6 +1,7 @@
 // more.js — settings, sharing, data, onboarding and the lock screen.
 
-import { get, update, replaceAll, blankState, CATEGORIES, CAT_BY_ID, NUMERIC } from './state.js';
+import { packInfo } from './pill-model.js';
+import { get, update, validateState, RECOVERY_KEY, replaceAll, blankState, CATEGORIES, CAT_BY_ID, NUMERIC } from './state.js';
 import { today, iso, addDays, diffDays, fmtDate, forecast, classify, stats, headline, PHASE_META, parseISO } from './cycle.js';
 import { $, $$, esc, openSheet, closeSheet, confirmSheet, toast, shareOrCopy, copyText, ringSVG } from './ui.js';
 import { topbar } from './views.js';
@@ -243,7 +244,7 @@ export function partnerView() {
   const ringDays = [];
   if (win) {
     const soFar = diffDays(win.start, t) + 1;
-    const len = Math.max(win.length || h.stats.avgCycle, soFar);
+    const len = Math.min(90, Math.max(win.length || h.stats.avgCycle, soFar));
     for (let i = 0; i < len; i++) {
       const date = addDays(win.start, i);
       const c = classify(date, theirs, f);
@@ -255,7 +256,7 @@ export function partnerView() {
   if (!partnerMonth) partnerMonth = { y: now.getFullYear(), m: now.getMonth() };
 
   const soon = [];
-  f.windows.forEach((w) => {
+  f.windows.filter(() => !f.stats.suppressed).forEach((w) => {
     if (w.start > t) soon.push({ date: w.start, label: 'Period starts', color: 'var(--menstrual)' });
     if (w.pmsStart > t) soon.push({ date: w.pmsStart, label: 'PMS may begin', color: 'var(--pms)' });
     if (w.fertileStart > t) soon.push({ date: w.fertileStart, label: 'Fertile window opens', color: 'var(--fertile)' });
@@ -306,6 +307,7 @@ export function partnerView() {
         </div>
 
         <p class="note" style="text-align:center">
+          ${theirs.legacyShare ? 'This older link includes period starts only. Ask for a new link to see exact recorded bleeding dates.' : ''}
           Dates only. ${esc(s.connection.name)}'s symptoms, moods and notes are not shared.
           ${s.connection.sharedAt ? `Last updated ${fmtDate(iso(new Date(s.connection.sharedAt)))}.` : ''}
         </p>
@@ -601,7 +603,8 @@ export function remindersView() {
         update((st) => { st.settings.reminders.periodSoon.daysBefore = Number(e.target.value); });
       });
       $('[data-pilltime]', root).addEventListener('change', (e) => {
-        update((st) => { st.settings.reminders.pill.time = e.target.value; });
+        if (!e.target.value || !e.target.reportValidity()) return;
+        update((st) => { st.settings.reminders.pill.time = e.target.value; if(st.settings.pill?.enabled) {const p=st.settings.pill;if(!p.history){const old={...p};p.history=[{...old,effectiveFrom:p.packStart}];}p.scheduledTime=e.target.value;const changed={...p};delete changed.history;p.history.push({...changed,effectiveFrom:today()});} });
       });
     },
   };
@@ -621,9 +624,8 @@ function runReminders() {
   const seen = JSON.parse(localStorage.getItem(seenKey) || '{}');
 
   const st = stats(s);
-  if (!st.cycles.length) return;
   const last = st.cycles[st.cycles.length - 1];
-  const expected = addDays(last.start, st.avgCycle);
+  const expected = last ? addDays(last.start, st.avgCycle) : null;
   const f = forecast(s);
   const cls = classify(t, s, f);
 
@@ -634,28 +636,29 @@ function runReminders() {
     notify(title, body);
   };
 
-  if (r.periodSoon.on) {
+  if (r.periodSoon.on && expected && !s.settings.pill?.enabled) {
     const d = diffDays(t, expected);
     if (d === r.periodSoon.daysBefore) {
       fire('soon', 'Period expected soon', `Your period is due in ${d} day${d > 1 ? 's' : ''}, around ${fmtDate(expected)}.`);
     }
   }
-  if (r.periodLate.on && !cls.isPeriod) {
+  if (r.periodLate.on && expected && !s.settings.pill?.enabled && !cls.isPeriod) {
     const late = diffDays(expected, t);
     if (late > 0 && late % 2 === 1) {
       fire(`late-${late}`, 'Period is late', `${late} day${late > 1 ? 's' : ''} past the predicted date. Cycles shift for many reasons.`);
     }
   }
-  if (r.fertileStart.on && s.settings.showFertile) {
+  if (r.fertileStart.on && s.settings.showFertile && !s.settings.pill?.enabled) {
     const w = f.windows.find((x) => x.fertileStart === t);
     if (w) fire('fertile', 'Fertile window opens today', `Ovulation is estimated around ${fmtDate(w.ovulation)}.`);
   }
   if (r.pill.on) {
-    const [hh, mm] = r.pill.time.split(':').map(Number);
+    if (s.settings.pill?.enabled && packInfo(t,s)?.kind !== 'active') return;
+    const [hh, mm] = (s.settings.pill?.enabled ? s.settings.pill.scheduledTime : r.pill.time).split(':').map(Number);
     const now = new Date();
     if (now.getHours() > hh || (now.getHours() === hh && now.getMinutes() >= mm)) {
-      const taken = (s.days[t]?.medication || []).some((x) => x.startsWith('pill'));
-      if (!taken) fire('pill', 'Pill reminder', 'Log it under Medication once you have taken it.');
+      const taken = !!s.days[t]?.pillStatus || (s.days[t]?.medication || []).some(x => ['pill-taken','pill-late','pill-missed'].includes(x)) || !!s.days[t]?.birthcontrolpill;
+      if (!taken) fire('pill', 'Pill reminder', 'Record your dose in Pill tracking once you have taken it.');
     }
   }
 }
@@ -783,7 +786,7 @@ export function dataView() {
         <div class="section-title">Back up</div>
         <div class="rows">
           <button class="row" data-json><span class="em">📦</span><span class="body">
-            <span class="t">Download a full backup</span><span class="d">JSON — restores everything exactly</span>
+            <span class="t">Download a full backup</span><span class="d">JSON — restores your health logs and settings</span>
           </span><span class="chev">›</span></button>
           <button class="row" data-csv><span class="em">📊</span><span class="body">
             <span class="t">Export as a spreadsheet</span><span class="d">CSV — one row per logged day</span>
@@ -824,7 +827,7 @@ export function dataView() {
           try {
             const parsed = JSON.parse(await file.text());
             const data = parsed.data || parsed;
-            if (!data.days) throw new Error('not an Orbit backup');
+            validateState(data);
             confirmSheet('Restore this backup?', `It holds ${Object.keys(data.days).length} logged days and will replace what is on this device.`, 'Restore', () => {
               replaceAll(data);
               toast('Restored');
@@ -839,6 +842,9 @@ export function dataView() {
       $('[data-wipe]', root).addEventListener('click', () => {
         confirmSheet('Erase everything?', 'Every logged day, setting and connection on this device will be deleted. Download a backup first if you might want it back.', 'Erase everything', () => {
           replaceAll(blankState());
+          localStorage.removeItem(RECOVERY_KEY);
+          localStorage.removeItem('orbit.sync.writer');
+          localStorage.removeItem('orbit.device');
           localStorage.removeItem('orbit.notified');
           toast('Erased');
           location.reload();

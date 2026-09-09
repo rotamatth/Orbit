@@ -295,36 +295,5 @@ function enhance() {
   }
 }
 
-// Capture selected dates even when existing Orbit controls trigger navigation.
-const patchGo = () => {
-  if (!window.__orbit?.go || window.__orbit.go.__uxWrapped) return false;
-  const original = window.__orbit.go.bind(window.__orbit);
-  const wrapped = (route, params = {}) => {
-    if (route === 'log' && params.date) remember(params.date);
-    return original(route, params);
-  };
-  wrapped.__uxWrapped = true;
-  window.__orbit.go = wrapped;
-  return true;
-};
-
-let tries = 0;
-const waitForOrbit = setInterval(() => {
-  tries++;
-  if (patchGo() || tries > 100) {
-    clearInterval(waitForOrbit);
-    enhance();
-  }
-}, 25);
-
-let queued = false;
-new MutationObserver(() => {
-  if (queued) return;
-  queued = true;
-  requestAnimationFrame(() => {
-    queued = false;
-    enhance();
-  });
-}).observe(document.body, { childList: true, subtree: true });
-
+export { enhance };
 window.__orbitUX = { openPastPeriod, goCalendarTo };

@@ -72,7 +72,7 @@ export function cycleView() {
   const st = h.stats;
   const win = h.cls.win;
   const soFar = diffDays(win.start, t) + 1;
-  const len = Math.max(win.length || st.avgCycle, soFar);
+  const len = Math.min(90, Math.max(win.length || st.avgCycle, soFar));
   const f = h.f;
 
   const ringDays = [];
@@ -177,6 +177,7 @@ function connectionCard(s) {
 }
 
 function upcomingEvents(s, f, limit) {
+  if (f.stats.suppressed) return [];
   const t = today();
   const evts = [];
   f.windows.forEach((w) => {
@@ -444,12 +445,12 @@ export function logView(params = {}) {
             <div class="cat">
               <div class="cat-head"><span class="em">${n.emoji}</span><span class="name">${esc(n.label)}</span></div>
               <input class="input" type="number" inputmode="decimal" step="${n.step}" min="${n.min}" max="${n.max}"
-                data-num="${n.id}" value="${day[n.id] ?? ''}" placeholder="${n.unit}">
+                aria-label="${n.label} (${n.unit})" data-num="${n.id}" value="${day[n.id] ?? ''}" placeholder="${n.unit}">
             </div>`).join('')}
 
           <div class="cat">
             <div class="cat-head"><span class="em">📝</span><span class="name">Note</span></div>
-            <textarea class="input" data-note placeholder="Anything worth remembering about today">${esc(day.note || '')}</textarea>
+            <textarea class="input" aria-label="Note" data-note placeholder="Anything worth remembering about today">${esc(day.note || '')}</textarea>
           </div>
         </div>
 
@@ -477,6 +478,7 @@ export function logView(params = {}) {
       }));
 
       $$('[data-num]', root).forEach((inp) => inp.addEventListener('change', () => {
+        if (!inp.reportValidity()) return;
         const v = inp.value === '' ? null : Number(inp.value);
         setField(sel, inp.dataset.num, v);
       }));

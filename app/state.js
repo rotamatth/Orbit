@@ -12,6 +12,7 @@ export const CATEGORIES = [
   {
     id: 'bleeding', label: 'Bleeding', emoji: '🩸', multi: false, core: true,
     options: [
+      { id: 'none', label: 'No bleeding' },
       { id: 'spotting', label: 'Spotting' },
       { id: 'light', label: 'Light' },
       { id: 'medium', label: 'Medium' },
@@ -417,16 +418,87 @@ export function blankState() {
 /* --------------------------- persistence --------------------------- */
 
 let _state = null;
+let blocked = false;
+let lastError = null;
+let undoDays = null;
 const listeners = new Set();
+export const RECOVERY_KEY = STORE_KEY + '.previous';
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const object = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+export function validDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(value + 'T12:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+// Validate at the boundary; retain unfamiliar JSON fields for forward compatibility.
+export function validateState(s) {
+  if (!object(s) || !object(s.days)) throw new Error('A backup must contain a days object.');
+  if (s.version != null && s.version !== 1) throw new Error('Unsupported backup version.');
+  for (const key of ['profile', 'settings', 'sync']) {
+    if (s[key] != null && !object(s[key])) throw new Error('Invalid ' + key + '.');
+  }
+  if (s.profile?.name != null && typeof s.profile.name !== 'string') throw new Error('Invalid profile name.');
+  if (s.profile?.role != null && !['tracker','partner'].includes(s.profile.role)) throw new Error('Invalid profile role.');
+  const raw = JSON.stringify(s);
+  if (raw.length > 4_000_000) throw new Error('Backup exceeds the 4 MB limit.');
+  JSON.parse(raw, (key, value) => {
+    if (['__proto__', 'prototype', 'constructor'].includes(key)) throw new Error('Invalid object key.');
+    return value;
+  });
+  for (const [date, day] of Object.entries(s.days)) {
+    if (!validDate(date) || !object(day)) throw new Error('Invalid daily entry: ' + date);
+    for (const n of NUMERIC) {
+      if (day[n.id] != null && (typeof day[n.id] !== 'number' || !Number.isFinite(day[n.id]) || day[n.id] < n.min || day[n.id] > n.max)) {
+        throw new Error('Invalid ' + n.label + ' on ' + date + '.');
+      }
+    }
+    for (const cat of CATEGORIES) {
+      const value = day[cat.id];
+      if (value == null) continue;
+      if (cat.multi ? !Array.isArray(value) : typeof value !== 'string') throw new Error('Invalid ' + cat.label + ' on ' + date);
+      const values = cat.multi ? value : [value];
+      if (values.some(v => !cat.options.some(o => o.id === v))) throw new Error('Unknown ' + cat.label + ' value on ' + date);
+    }
+    if (day.pillStatus != null && !['taken','late','missed','vomited'].includes(day.pillStatus)) throw new Error('Invalid pill status.');
+    if (day.pillTakenAt != null && (typeof day.pillTakenAt !== 'string' || (!/^([01]\d|2[0-3]):[0-5]\d$/.test(day.pillTakenAt) && !Number.isFinite(Date.parse(day.pillTakenAt))))) throw new Error('Invalid dose timestamp.');
+    if (day.note != null && typeof day.note !== 'string') throw new Error('Invalid note.');
+  }
+  const cfg = s.settings || {};
+  for (const [key, min, max] of [['avgCycle',15,90], ['avgPeriod',1,30], ['luteal',8,20]]) {
+    if (cfg[key] != null && (!Number.isFinite(cfg[key]) || cfg[key] < min || cfg[key] > max)) throw new Error('Invalid ' + key + '.');
+  }
+  for (const key of ['enabledCategories','quickLog','customTags']) {
+    if (cfg[key] != null && !Array.isArray(cfg[key])) throw new Error('Invalid ' + key + '.');
+  }
+  if (cfg.customTags?.some(tag => !object(tag) || typeof tag.id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(tag.id) || typeof tag.label !== 'string')) throw new Error('Invalid custom tag.');
+  if (cfg.pill != null) {
+    if (!object(cfg.pill)) throw new Error('Invalid pill settings.');
+    for(const key of ['activePills','placeboPills']) if(cfg.pill[key]!=null && (!Number.isInteger(cfg.pill[key]) || cfg.pill[key] < (key==='activePills'?1:0) || cfg.pill[key] > (key==='activePills'?365:14))) throw new Error('Invalid pill pack.');
+    if(cfg.pill.packStart && !validDate(cfg.pill.packStart)) throw new Error('Invalid pack date.');
+    if(cfg.pill.scheduledTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(cfg.pill.scheduledTime)) throw new Error('Invalid pill time.');
+  }
+  if (cfg.reminders != null && !object(cfg.reminders)) throw new Error('Invalid reminders.');
+  return s;
+}
+
+function status(error = null) {
+  lastError = error;
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('orbit:storage', { detail: { error: error?.message || null, blocked } }));
+}
+export function storageStatus() { return { error: lastError?.message || null, blocked, canUndo: !!undoDays }; }
 
 export function load() {
   if (_state) return _state;
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    _state = raw ? migrate(JSON.parse(raw)) : blankState();
+    _state = raw ? migrate(validateState(JSON.parse(raw))) : blankState();
   } catch (err) {
-    console.warn('Could not read saved data, starting fresh.', err);
+    // Do not silently overwrite unreadable health history with a fresh profile.
+    blocked = true;
     _state = blankState();
+    status(new Error('Saved data could not be read. Export it or restore the previous copy before continuing.'));
   }
   return _state;
 }
@@ -434,47 +506,62 @@ export function load() {
 function migrate(s) {
   const base = blankState();
   const merged = {
-    ...base,
-    ...s,
+    ...base, ...s,
     profile: { ...base.profile, ...(s.profile || {}) },
-    settings: {
-      ...base.settings,
-      ...(s.settings || {}),
-      reminders: { ...base.settings.reminders, ...((s.settings || {}).reminders || {}) },
-    },
+    settings: { ...base.settings, ...(s.settings || {}),
+      reminders: Object.fromEntries(Object.entries(base.settings.reminders).map(([k,v]) => [k, { ...v, ...(s.settings?.reminders?.[k] || {}) }])) },
     sync: { ...base.sync, ...(s.sync || {}) },
     days: s.days || {},
   };
   return merged;
 }
 
-export function get() {
-  return load();
-}
+export function get() { return load(); }
 
-export function save() {
+function commit(next, recovery = false) {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(_state));
+    if (blocked && !recovery) throw new Error('Saving is paused to protect unreadable data. Restore a backup first.');
+    validateState(next);
+    const raw = JSON.stringify(next);
+    const previous = localStorage.getItem(STORE_KEY);
+    // A previous valid snapshot is required before destructive replacement.
+    if (previous && !blocked && previous !== raw) localStorage.setItem(RECOVERY_KEY, previous);
+    localStorage.setItem(STORE_KEY, raw);
+    _state = next;
+    blocked = false;
+    status();
   } catch (err) {
-    console.error('Saving failed — storage may be full.', err);
+    status(err);
+    throw err; // Stop the caller before it announces success.
   }
-  listeners.forEach((fn) => fn(_state));
+  listeners.forEach(fn => fn(_state));
+  return true;
 }
 
+export function save() { return commit(clone(load())); }
 export function update(fn) {
-  fn(load());
-  save();
+  const previousDays = clone(load().days);
+  const next = clone(load());
+  fn(next);
+  for (const [date, day] of Object.entries(next.days)) {
+    if (Object.values(day).every(v => v == null || v === '' || (Array.isArray(v) && !v.length))) delete next.days[date];
+  }
+  const changed = JSON.stringify(previousDays) !== JSON.stringify(next.days);
+  const result = commit(next);
+  if(changed) {undoDays=previousDays;status();}
+  return result;
 }
-
-export function replaceAll(next) {
-  _state = migrate(next);
-  save();
+export function undoLastEntry() {
+  if(!undoDays)return;
+  const next=clone(load());next.days=undoDays;commit(next);undoDays=null;status();
 }
-
-export function subscribe(fn) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
+export function replaceAll(next) { const result=commit(migrate(validateState(clone(next))), true);undoDays=null;status();return result; }
+export function restorePrevious() {
+  const raw = localStorage.getItem(RECOVERY_KEY);
+  if (!raw) throw new Error('No previous copy is available. Import a backup instead.');
+  return replaceAll(JSON.parse(raw));
 }
+export function subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); }
 
 /* --------------------------- day helpers --------------------------- */
 
@@ -512,7 +599,7 @@ export function toggleTag(iso, catId, optId) {
       else day[catId] = optId;
     }
   });
-  update(() => pruneDay(iso));
+
 }
 
 export function isTagged(iso, catId, optId) {
@@ -523,12 +610,13 @@ export function isTagged(iso, catId, optId) {
 }
 
 export function setField(iso, field, value) {
+  if (!validDate(iso)) throw new Error('Choose a valid date.');
   update((s) => {
     const day = s.days[iso] || (s.days[iso] = {});
     if (value === '' || value == null) delete day[field];
     else day[field] = value;
   });
-  update(() => pruneDay(iso));
+
 }
 
 export function dayHasData(iso) {

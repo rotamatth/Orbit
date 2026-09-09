@@ -1,5 +1,7 @@
 # Orbit — a private cycle tracker
 
+**Current release: v12.** See [upgrade instructions](UPGRADE-v12.md) for storage recovery, exact-date sharing and the required optional Supabase migration. Run `npm ci --ignore-scripts && npm test` to check this release. Older release notes below describe earlier behavior.
+
 A menstrual cycle tracker that installs to your phone's home screen and keeps everything
 on the device. No account, no server, no analytics.
 
@@ -102,10 +104,10 @@ Anyone reading the database without your passphrase sees nothing useful.
 ## 4. Back up
 
 **More › Your data › Download a full backup** writes a JSON file that restores
-everything exactly. Do this occasionally.
+your logs and settings. Reconfigure the PIN and live-sync credentials after restoring. Do this occasionally.
 
 Clearing your browser's site data will delete your logs. On some phones, removing the
-home-screen app does too. There is no cloud copy unless you turned on sync.
+home-screen app does too. Partner sync is a dates-only summary, not a full cloud backup.
 
 CSV export is also there if you want to look at your data in a spreadsheet or bring it
 to a doctor's appointment.

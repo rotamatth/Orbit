@@ -2,7 +2,7 @@ import { JSDOM } from 'jsdom';
 import { webcrypto } from 'node:crypto';
 import fs from 'node:fs';
 
-const html = fs.readFileSync('../index.html', 'utf8');
+const html = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const dom = new JSDOM(html, {
   url: 'https://example.com/orbit/',
   pretendToBeVisual: true,
@@ -14,13 +14,14 @@ const { window } = dom;
 Object.defineProperty(window, 'crypto', { value: webcrypto, configurable: true });
 window.matchMedia = () => ({ matches: false, addEventListener(){}, removeEventListener(){} });
 window.scrollTo = () => {};
+window.HTMLElement.prototype.scrollIntoView = () => {};
 Object.defineProperty(window, 'scrollY', { value: 0, writable: true });
 window.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 window.navigator.serviceWorker = undefined;
 window.Notification = undefined;
 window.Blob = class { constructor(a){ this.size = a.join('').length; } };
 
-for (const k of ['window','document','localStorage','location','history','navigator','Node','Element','HTMLElement','getComputedStyle','CustomEvent','Event','requestAnimationFrame','matchMedia','TextEncoder','TextDecoder']) {
+for (const k of ['window','document','localStorage','location','history','navigator','Node','Element','HTMLElement','getComputedStyle','CustomEvent','Event','requestAnimationFrame','matchMedia','sessionStorage','MutationObserver','TextEncoder','TextDecoder']) {
   if (window[k] === undefined) continue;
   try { globalThis[k] = window[k]; }
   catch { Object.defineProperty(globalThis, k, { value: window[k], configurable: true }); }
@@ -45,8 +46,8 @@ S.update(s => {
     for (let i=0;i<5;i++) s.days[C.addDays(d,i)] = { bleeding: i<2?'heavy':'medium' };
     s.days[C.addDays(d,1)].pain = ['cramps','headache'];
     s.days[C.addDays(d,1)].feelings = ['sensitive'];
-    s.days[C.addDays(d,12)] = { fluid:'eggwhite', energy:'high', bbt: 36.4 + Math.random()*0.1 };
-    s.days[C.addDays(d,15)] = { bbt: 36.7 + Math.random()*0.1, sex:['unprotected'] };
+    s.days[C.addDays(d,12)] = { fluid:'eggwhite', energy:'high', bbt: 36.45 };
+    s.days[C.addDays(d,15)] = { bbt: 36.75, sex:['unprotected'] };
     s.days[C.addDays(d,L-3)] = { pms:['bloating','moodswings'], craving:['chocolate'], note:'tired today' };
     d = C.addDays(d, L);
   }
@@ -54,7 +55,7 @@ S.update(s => {
 
 const V = await import('../app/views.js');
 const M = await import('../app/more.js');
-await import('../app/main.js');
+await import('../app/main-v5.js');
 
 await new Promise(r => setTimeout(r, 120));
 
@@ -66,10 +67,10 @@ console.log('\n— boot —');
 ok('app rendered', app.innerHTML.length > 500, `${app.innerHTML.length} chars`);
 ok('bottom nav present', !!app.querySelector('.nav'));
 ok('5 tabs', app.querySelectorAll('[data-tab]').length === 5);
-ok('cycle ring drawn', !!app.querySelector('.ring-wrap svg'));
-ok('ring has one arc per cycle day', app.querySelectorAll('.ring-wrap path').length >= 25,
-   `${app.querySelectorAll('.ring-wrap path').length}`);
-ok('day number shown', /\d/.test(app.querySelector('.ring-day')?.textContent||''));
+ok('cycle ring drawn', !!app.querySelector('[data-cycle-ring]'));
+ok('ring has one arc per cycle day', app.querySelectorAll('[data-ring-index]').length >= 25,
+   `${app.querySelectorAll('[data-ring-index]').length}`);
+ok('day number shown', /\d/.test(app.querySelector('[data-ring-center-day]')?.textContent||''));
 
 console.log('\n— every route renders —');
 for (const r of ['cycle','calendar','log','analysis','more','connect','settings-cycle','settings-categories','reminders','privacy','data','about']) {
@@ -194,6 +195,38 @@ await new Promise(r=>setTimeout(r,20));
 app.querySelector('[data-back-nav]').click();
 await new Promise(r=>setTimeout(r,20));
 ok('back returns to More', app.textContent.includes('Tracking categories'));
+
+console.log('\n— current pill UI and evidence —');
+S.update(s=>{s.profile.role='tracker';s.settings.pill={enabled:true,name:'Test pill',type:'combined',packStart:C.today(),activePills:21,placeboPills:7,scheduledTime:'21:00'};});
+window.__orbit.go('cycle');
+ok('pill card appears',!!app.querySelector('[data-pill11-card]'));
+ok('fertility ring is absent in pill mode',!app.querySelector('[data-cycle-ring]'));
+app.querySelector('[data-pill-take]').click();
+ok('mark taken refreshes the card',app.querySelector('.pill11-current strong').textContent.includes('Taken'));
+ok('dose has a full timestamp',S.get().days[C.today()].pillTakenAt.includes('T'));
+const stableMarkup=app.innerHTML;
+await new Promise(r=>setTimeout(r,150));
+ok('pill page stays stable at idle',app.innerHTML===stableMarkup);
+window.__orbit.go('log');
+ok('timestamp editor appears',!!app.querySelector('[data-pill-actual]'));
+app.querySelector('[data-pill-settings]').click();
+const dialog=document.querySelector('.pill11-sheet');
+ok('pill setup captures focus',dialog.contains(document.activeElement));
+dialog.querySelector('[data-active]').value='999';dialog.querySelector('[data-save]').click();
+ok('invalid pack is not saved',S.get().settings.pill.activePills===21);
+document.dispatchEvent(new window.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
+ok('Escape closes pill setup',!document.querySelector('.pill11-modal'));
+S.update(s=>{s.days={};});window.__orbit.go('cycle');
+ok('pill tracking works without menstrual history',!!app.querySelector('[data-pill11-card]'));
+S.update(s=>{s.settings.reminders.pill.on=true;s.settings.pill.scheduledTime='00:00';});
+localStorage.removeItem('orbit.notified');M.checkReminders();
+ok('pill reminders work without menstrual history',!!JSON.parse(localStorage.getItem('orbit.notified')||'{}').pill);
+S.update(s=>{s.days[C.today()]={pillStatus:'taken',pillTakenAt:new Date().toISOString()};});
+localStorage.removeItem('orbit.notified');M.checkReminders();
+ok('pillStatus prevents a duplicate reminder',!JSON.parse(localStorage.getItem('orbit.notified')||'{}').pill);
+S.update(s=>{s.settings.pill.enabled=false;s.days={};s.days[C.addDays(C.today(),-70)]={bleeding:'medium'};});window.__orbit.go('cycle');
+ok('long current cycles show the actual day without clamping the ring',app.querySelector('.ux-long-cycle')?.textContent.includes('Day 71'));
+ok('zoom is enabled',!document.querySelector('meta[name=viewport]').content.includes('user-scalable=no'));
 
 console.log('\n— uncaught errors —');
 ok('no console errors during the whole run', errors.length === 0, errors.slice(0,4).join(' | '));

@@ -1,0 +1,13 @@
+/* v12: action hierarchy, clear storage state, and accessible controls. */
+.storage-status {position:relative; margin:12px auto 100px;max-width:560px;padding:10px 16px;color:var(--muted);font-size:13px;text-align:center}
+.storage-status.has-error {position:fixed;z-index:10000;top:0;left:0;right:0;margin:0 auto;background:#43232b;color:#fff;border:2px solid #e56b6f;box-shadow:0 4px 24px #0008}
+.storage-status button,.update-ready {padding:12px;margin:8px;border-radius:10px;border:1px solid currentColor;background:var(--ink-2);color:var(--bone);font:inherit;min-height:44px}
+.update-ready {position:fixed;top:12px;right:12px;z-index:999}
+.ux-v5-home>.ux-v5-feel {margin-bottom:18px}
+.ux-v5-arc {max-width:300px;margin-inline:auto}
+.tracking-extra>summary {cursor:pointer;padding:18px;font-weight:600;font-size:16px;color:var(--bone)}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible {outline:3px solid var(--accent);outline-offset:3px}
+.pill11-card small,.pill11-pack span,.pill11-current span,.pill11-warning,.pill11-analysis-note,.pill11-actions button span,.pill11-metrics span {font-size:13px;line-height:1.5}
+.pill11-timestamp {display:grid;gap:8px;margin-top:16px;font-size:14px}
+.pill11-timestamp button {min-height:44px;background:var(--ink-2);color:var(--bone);border:1px solid var(--border);border-radius:12px}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const source=fs.readFileSync(new URL('../sw.js',import.meta.url),'utf8');
+const handlers={};let failInstall=false, installed=[], deleted=[], skip=0;
+const cache={addAll:async paths=>{installed=paths;if(failInstall)throw new Error('offline asset missing');},match:async path=>path==='./index.html'?{shell:true}:undefined};
+const ctx={self:{addEventListener:(n,fn)=>handlers[n]=fn,skipWaiting:()=>skip++,clients:{claim:async()=>{}}},caches:{open:async()=>cache,keys:async()=>['orbit-v11','orbit-v12','another-app'],delete:async k=>deleted.push(k)},location:{origin:'https://orbit.test'},URL,Response,fetch:async()=>{throw new Error('offline');},clients:{}};
+vm.runInNewContext(source,ctx);
+let waiting;handlers.install({waitUntil:p=>waiting=p});await waiting;
+for(const file of installed)assert.ok(fs.existsSync(new URL('../'+file,import.meta.url)),file+' exists');
+assert.equal(skip,0,'install does not force activation over an open app');
+failInstall=true;handlers.install({waitUntil:p=>waiting=p});await assert.rejects(waiting);
+handlers.activate({waitUntil:p=>waiting=p});await waiting;assert.deepEqual(deleted,['orbit-v11']);
+let response;handlers.fetch({request:{method:'GET',url:'https://orbit.test/missing.js',mode:'cors'},respondWith:p=>response=p});assert.equal((await response).type,'error','missing modules do not receive HTML');
+handlers.fetch({request:{method:'GET',url:'https://orbit.test/screen',mode:'navigate'},respondWith:p=>response=p});assert.equal((await response).shell,true);
+console.log('Offline shell, failed update, cache isolation and navigation fallback checks passed');
